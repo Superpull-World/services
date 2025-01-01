@@ -1,0 +1,11 @@
+POST http://localhost:5050/api/workflow/start
+content-type: application/json
+
+{
+  "name": "sampleWorkflow",
+  "args": [
+    {
+      "name": "Hello, World!"
+    }
+  ]
+}
