@@ -4,8 +4,10 @@ import * as workflow from '@temporalio/workflow';
 import type * as activities from './activities';
 import { WorkflowEntry } from '../registry';
 
-const { createNFT } = proxyActivities<typeof activities>({
-  startToCloseTimeout: '5 minutes', // Increased timeout for blockchain transactions
+const { createCompressedNFT, listNFTForAuction } = proxyActivities<
+  typeof activities
+>({
+  startToCloseTimeout: '5 minutes',
 });
 
 export const status = workflow.defineQuery<string>('status');
@@ -23,10 +25,36 @@ export interface CreateItemWorkflow
 export const createItemWorkflowFunction = async (
   input: activities.CreateItemInput,
 ) => {
-  workflow.setHandler(status, () => 'initiating-nft-creation');
-  const result = await createNFT(input);
-  workflow.setHandler(status, () => result.status);
-  return result;
+  workflow.setHandler(status, () => 'creating-compressed-nft');
+  const nftResult = await createCompressedNFT(input);
+
+  if (nftResult.status === 'failed') {
+    workflow.setHandler(status, () => 'nft-creation-failed');
+    return {
+      ...nftResult,
+      auctionAddress: '',
+      auctionTransactionHash: '',
+    };
+  }
+
+  workflow.setHandler(status, () => 'listing-for-auction');
+  const auctionResult = await listNFTForAuction(input, nftResult);
+
+  if (auctionResult.status === 'failed') {
+    workflow.setHandler(status, () => 'auction-listing-failed');
+    return {
+      ...nftResult,
+      auctionAddress: '',
+      auctionTransactionHash: '',
+    };
+  }
+
+  workflow.setHandler(status, () => 'completed');
+  return {
+    ...nftResult,
+    auctionAddress: auctionResult.auctionAddress,
+    auctionTransactionHash: auctionResult.transactionHash,
+  };
 };
 
 export const createItemWorkflow: CreateItemWorkflow = {

@@ -2,14 +2,14 @@
 
 ## Description
 
-**SuperPull Services** is a Node.js backend service that powers the SuperPull NFT marketplace. It uses [Temporal](https://temporal.io/) for workflow orchestration to handle complex NFT creation, listing, and trading processes on the Solana blockchain. The service provides RESTful APIs for the SuperPull mobile app and manages blockchain interactions.
+**SuperPull Services** is a Node.js backend service that powers the SuperPull NFT marketplace. It uses [Temporal](https://temporal.io/) for workflow orchestration and integrates with Solana blockchain through Anchor for NFT operations. The service provides RESTful APIs for the SuperPull mobile app and manages blockchain interactions.
 
 ## Features
 
 - **NFT Creation Workflow**: Handles the complete NFT creation process including metadata upload and minting
+- **Compressed NFTs**: Support for Metaplex Bubblegum compressed NFTs
 - **Dynamic Bonding Curves**: Implements customizable bonding curves for NFT pricing
-- **Solana Integration**: Direct interaction with Solana blockchain for NFT operations
-- **Secure Wallet Management**: Handles wallet operations securely
+- **Anchor Program Integration**: Direct interaction with on-chain Anchor program for auctions
 - **Workflow Orchestration**: Uses Temporal for reliable and scalable workflow execution
 
 ## Prerequisites
@@ -39,9 +39,55 @@
    # Edit .env with your configuration
    ```
 
-## API Endpoints
+Required environment variables:
+```env
+# Solana Configuration
+SOLANA_RPC_ENDPOINT=https://api.devnet.solana.com
+SOLANA_PRIVATE_KEY=<your-private-key>
+SUPERPULL_PROGRAM_ID=<anchor-program-id>
+MERKLE_TREE=<compressed-nft-tree>
+COLLECTION_MINT=<collection-nft-mint>
 
-### Workflow Endpoints
+# Other configurations...
+```
+
+## Core Components
+
+### Solana Service
+- NFT creation with bonding curves
+- Compressed NFT minting via Metaplex Bubblegum
+- Token account management
+- Integration with Anchor program
+
+### Anchor Client
+- Auction initialization and management
+- Bid placement and tracking
+- Price updates and state management
+- Direct interaction with on-chain program
+
+## Project Structure
+
+```
+src/
+├── services/            # Business logic services
+│   ├── solana.ts       # Solana blockchain interactions
+│   └── anchor-client.ts # Anchor program client
+├── workflows/           # Temporal workflow definitions
+├── types/              # TypeScript type definitions
+│   └── superpull_program.ts # Anchor program types
+└── idl/               # Anchor program IDL
+```
+
+## Available Operations
+
+### NFT Operations
+- Create NFT with bonding curve
+- Initialize auction
+- Place bids
+- Get current price
+- Fetch auction state
+
+### Workflow Operations
 
 #### Start Workflow
 - **POST** `/workflow/start`
@@ -90,17 +136,17 @@
   4. Initialize bonding curve
   5. Create marketplace listing
 
-## Project Structure
+## Development
 
-```
-src/
-├── controllers/          # Request handlers
-├── services/            # Business logic services
-├── workflows/           # Temporal workflow definitions
-│   ├── items/          # NFT-related workflows
-│   └── registry.ts     # Workflow registry
-├── routers/            # API route definitions
-└── index.ts            # Application entry point
+```bash
+# Build the project
+npm run build
+
+# Run in development mode
+npm run dev
+
+# Run tests
+npm test
 ```
 
 ## Configuration
