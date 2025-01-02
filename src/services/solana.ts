@@ -6,6 +6,8 @@ import {
   SystemProgram,
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
+import { log } from '@temporalio/activity';
+
 import {
   createMint,
   getOrCreateAssociatedTokenAccount,
@@ -16,12 +18,16 @@ import { dasApi } from '@metaplex-foundation/digital-asset-standard-api';
 import {
   mplBubblegum,
   mintToCollectionV1,
+  createTree,
 } from '@metaplex-foundation/mpl-bubblegum';
+import { createNft } from '@metaplex-foundation/mpl-token-metadata';
 import {
   keypairIdentity,
   Umi,
   publicKey,
   transactionBuilder,
+  generateSigner,
+  percentAmount,
 } from '@metaplex-foundation/umi';
 import {
   fromWeb3JsKeypair,
@@ -58,9 +64,8 @@ export class SolanaService {
   private connection: Connection;
   private payer: Keypair;
   private nftProgramId: PublicKey;
-  private merkleTree: PublicKey;
   private umi: Umi;
-  private collectionMint: PublicKey;
+  private collectionMint!: PublicKey;
   private anchorClient: AnchorClient;
 
   constructor(
@@ -68,16 +73,12 @@ export class SolanaService {
       'https://api.devnet.solana.com',
     payerPrivateKey: string = process.env.SOLANA_PRIVATE_KEY!,
     nftProgramId: string = process.env.SUPERPULL_PROGRAM_ID!,
-    merkleTree: string = process.env.MERKLE_TREE!,
-    collectionMint: string = process.env.COLLECTION_MINT!,
   ) {
     this.connection = new Connection(endpoint, 'confirmed');
     this.payer = Keypair.fromSecretKey(
       Buffer.from(JSON.parse(payerPrivateKey)),
     );
     this.nftProgramId = new PublicKey(nftProgramId);
-    this.merkleTree = new PublicKey(merkleTree);
-    this.collectionMint = new PublicKey(collectionMint);
 
     this.umi = createUmi(endpoint)
       .use(keypairIdentity(fromWeb3JsKeypair(this.payer)))
@@ -90,7 +91,52 @@ export class SolanaService {
       new anchor.Wallet(this.payer),
       { commitment: 'confirmed' },
     );
+    log.info('Initializing Anchor client', {
+      provider,
+      nftProgramId: this.nftProgramId,
+    });
     this.anchorClient = new AnchorClient(provider, this.nftProgramId);
+
+    // Initialize collection
+    this.initializeCollection().catch(console.error);
+  }
+
+  private async initializeCollection(): Promise<void> {
+    try {
+      // Try to fetch existing collection using a deterministic seed
+      const [collectionAddress] = PublicKey.findProgramAddressSync(
+        [Buffer.from('superpull_collection')],
+        this.nftProgramId,
+      );
+
+      const collectionAccount =
+        await this.connection.getAccountInfo(collectionAddress);
+
+      if (!collectionAccount) {
+        // Collection doesn't exist, create it
+        const collectionMint = generateSigner(this.umi);
+
+        const builder = createNft(this.umi, {
+          mint: collectionMint,
+          name: 'SuperPull Collection',
+          symbol: 'SPULL',
+          uri: 'https://superpull.world/collection.json',
+          sellerFeeBasisPoints: percentAmount(0),
+          isCollection: true,
+          creators: null,
+          collection: null,
+          uses: null,
+        });
+
+        await builder.sendAndConfirm(this.umi);
+        this.collectionMint = new PublicKey(collectionMint.publicKey);
+      } else {
+        this.collectionMint = collectionAddress;
+      }
+    } catch (error) {
+      console.error('Error initializing collection:', error);
+      throw error;
+    }
   }
 
   async createNFTWithBondingCurve(
@@ -256,14 +302,45 @@ export class SolanaService {
   async createCompressedNFT(
     metadata: NFTMetadata,
     ownerAddress: string,
-  ): Promise<{ mint: PublicKey; txId: string }> {
+  ): Promise<{ mint: PublicKey; txId: string; merkleTree: PublicKey }> {
     try {
+      log.info('Starting compressed NFT creation', {
+        owner: ownerAddress,
+        metadata: metadata.name,
+      });
+
       const ownerPublicKey = new PublicKey(ownerAddress);
 
-      const builder = transactionBuilder().add(
+      // Generate a new signer for the tree
+      const merkleTreeKeypair = generateSigner(this.umi);
+      const merkleTreeDepth = 14;
+      const merkleTreeBufferSize = 64;
+
+      log.debug('Creating Merkle tree', {
+        maxDepth: merkleTreeDepth.toString(),
+        maxBufferSize: merkleTreeBufferSize.toString(),
+      });
+
+      // Create the tree with default parameters for compressed NFTs
+      const treeBuilder = createTree(this.umi, {
+        merkleTree: merkleTreeKeypair,
+        maxDepth: merkleTreeDepth,
+        maxBufferSize: merkleTreeBufferSize,
+        public: true,
+      });
+
+      // Send and confirm the tree creation
+      await (await treeBuilder).sendAndConfirm(this.umi);
+
+      log.debug('Merkle tree created', {
+        treeAddress: merkleTreeKeypair.publicKey.toString(),
+      });
+
+      // Create the NFT using the new tree
+      const nftBuilder = transactionBuilder().add(
         mintToCollectionV1(this.umi, {
           leafOwner: fromWeb3JsPublicKey(ownerPublicKey),
-          merkleTree: fromWeb3JsPublicKey(this.merkleTree),
+          merkleTree: merkleTreeKeypair.publicKey,
           collectionMint: fromWeb3JsPublicKey(this.collectionMint),
           metadata: {
             name: metadata.name,
@@ -285,20 +362,33 @@ export class SolanaService {
         }),
       );
 
-      const { signature } = await builder.sendAndConfirm(this.umi);
-      const txId = signature.toString();
+      const result = await nftBuilder.sendAndConfirm(this.umi);
+      const txId = result.signature.toString();
 
       const assetId = await this.computeAssetId(
-        this.merkleTree.toBase58(),
+        merkleTreeKeypair.publicKey.toString(),
         ownerPublicKey.toBase58(),
       );
 
-      return {
+      const response = {
         mint: new PublicKey(assetId),
         txId,
+        merkleTree: new PublicKey(merkleTreeKeypair.publicKey),
       };
+
+      log.debug('Compressed NFT created successfully', {
+        assetId,
+        txId,
+        merkleTree: merkleTreeKeypair.publicKey.toString(),
+      });
+
+      return response;
     } catch (error) {
-      console.error('Error creating compressed NFT:', error);
+      log.error('Error creating compressed NFT', {
+        error,
+        owner: ownerAddress,
+        metadata: metadata.name,
+      });
       throw error;
     }
   }
@@ -320,6 +410,7 @@ export class SolanaService {
 
   async initializeAuction(
     tokenId: string,
+    merkleTree: PublicKey,
     bondingCurve: BondingCurveParams,
     ownerAddress: string,
   ): Promise<{ auctionAddress: PublicKey; txId: string }> {
@@ -327,7 +418,7 @@ export class SolanaService {
       const ownerPublicKey = new PublicKey(ownerAddress);
 
       const result = await this.anchorClient.initializeAuction(
-        this.merkleTree,
+        merkleTree,
         ownerPublicKey,
         bondingCurve.initialPrice,
         bondingCurve.slope,

@@ -1,8 +1,9 @@
 import * as anchor from '@coral-xyz/anchor';
 import { Program } from '@coral-xyz/anchor';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { log } from '@temporalio/activity';
 import { SuperpullProgram } from '../types/superpull_program';
-import idl from '../idl/superpull_program.json';
+import IDL from '../idl/superpull_program.json';
 
 interface InitializeAuctionAccounts {
   auction: PublicKey;
@@ -21,8 +22,12 @@ export class AnchorClient {
   program: Program<SuperpullProgram>;
 
   constructor(provider: anchor.AnchorProvider, programId: PublicKey) {
+    log.info('Initializing Anchor client', {
+      IDL,
+      programId: programId.toString(),
+    });
     // @ts-expect-error IDL type mismatch
-    this.program = new Program(idl, programId, provider);
+    this.program = new Program(IDL, programId, provider);
   }
 
   async initializeAuction(
@@ -32,6 +37,14 @@ export class AnchorClient {
     priceIncrement: number,
     maxSupply: number,
   ): Promise<{ auctionAddress: PublicKey; signature: string }> {
+    log.info('Initializing auction', {
+      merkleTree: merkleTree.toString(),
+      authority: authority.toString(),
+      basePrice,
+      priceIncrement,
+      maxSupply,
+    });
+
     const [auctionAddress] = PublicKey.findProgramAddressSync(
       [Buffer.from('auction'), merkleTree.toBuffer(), authority.toBuffer()],
       this.program.programId,
@@ -51,6 +64,11 @@ export class AnchorClient {
       } as InitializeAuctionAccounts)
       .rpc();
 
+    log.info('Auction initialized', {
+      auctionAddress: auctionAddress.toString(),
+      signature,
+    });
+
     return {
       auctionAddress,
       signature,
@@ -60,6 +78,10 @@ export class AnchorClient {
   async getCurrentPrice(
     auctionAddress: PublicKey,
   ): Promise<{ price: anchor.BN; supply: anchor.BN }> {
+    log.debug('Getting current price', {
+      auctionAddress: auctionAddress.toString(),
+    });
+
     await this.program.methods
       .getCurrentPrice()
       .accounts({
@@ -68,8 +90,18 @@ export class AnchorClient {
       .rpc();
 
     const state = await this.program.account.auctionState.fetch(auctionAddress);
+    const price = state.basePrice.add(
+      state.priceIncrement.mul(state.currentSupply),
+    );
+
+    log.debug('Current price retrieved', {
+      auctionAddress: auctionAddress.toString(),
+      price: price.toString(),
+      supply: state.currentSupply.toString(),
+    });
+
     return {
-      price: state.basePrice.add(state.priceIncrement.mul(state.currentSupply)),
+      price,
       supply: state.currentSupply,
     };
   }
@@ -79,6 +111,12 @@ export class AnchorClient {
     bidder: PublicKey,
     amount: number,
   ): Promise<string> {
+    log.info('Placing bid', {
+      auction: auction.toString(),
+      bidder: bidder.toString(),
+      amount,
+    });
+
     const signature = await this.program.methods
       .placeBid(new anchor.BN(amount))
       .accounts({
@@ -88,10 +126,35 @@ export class AnchorClient {
       } as PlaceBidAccounts)
       .rpc();
 
+    log.info('Bid placed', {
+      auction: auction.toString(),
+      bidder: bidder.toString(),
+      amount,
+      signature,
+    });
+
     return signature;
   }
 
   async getAuctionState(auctionAddress: PublicKey) {
-    return await this.program.account.auctionState.fetch(auctionAddress);
+    log.debug('Getting auction state', {
+      auctionAddress: auctionAddress.toString(),
+    });
+
+    const state = await this.program.account.auctionState.fetch(auctionAddress);
+
+    log.debug('Auction state retrieved', {
+      auctionAddress: auctionAddress.toString(),
+      state: {
+        authority: state.authority.toString(),
+        merkleTree: state.merkleTree.toString(),
+        basePrice: state.basePrice.toString(),
+        priceIncrement: state.priceIncrement.toString(),
+        maxSupply: state.maxSupply.toString(),
+        currentSupply: state.currentSupply.toString(),
+      },
+    });
+
+    return state;
   }
 }

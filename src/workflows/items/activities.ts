@@ -1,3 +1,6 @@
+import { PublicKey } from '@solana/web3.js';
+import { log } from '@temporalio/activity';
+
 import {
   SolanaService,
   NFTMetadata,
@@ -18,6 +21,7 @@ export interface NFTCreationOutput {
   transactionHash: string;
   status: 'success' | 'failed';
   message: string;
+  merkleTree: string;
 }
 
 export interface AuctionListingOutput {
@@ -36,6 +40,7 @@ export async function createCompressedNFT(
   input: CreateItemInput,
 ): Promise<NFTCreationOutput> {
   try {
+    log.info('Initializing Solana service', { input });
     const solanaService = new SolanaService();
 
     const metadata: NFTMetadata = {
@@ -51,6 +56,7 @@ export async function createCompressedNFT(
       ],
     };
 
+    log.info('Creating compressed NFT', { metadata });
     const result = await solanaService.createCompressedNFT(
       metadata,
       input.ownerAddress,
@@ -61,14 +67,16 @@ export async function createCompressedNFT(
       transactionHash: result.txId,
       status: 'success',
       message: `NFT created for ${input.name}`,
+      merkleTree: result.merkleTree.toBase58(),
     };
   } catch (error) {
-    console.error('Error in createCompressedNFT activity:', error);
+    log.error('Error in createCompressedNFT activity:', { error });
     return {
       tokenId: '',
       transactionHash: '',
       status: 'failed',
       message: error instanceof Error ? error.message : 'NFT creation failed',
+      merkleTree: '',
     };
   }
 }
@@ -78,6 +86,7 @@ export async function listNFTForAuction(
   nftOutput: NFTCreationOutput,
 ): Promise<AuctionListingOutput> {
   try {
+    log.info('Initializing Solana service', { input });
     const solanaService = new SolanaService();
 
     const bondingCurve: BondingCurveParams = {
@@ -87,8 +96,10 @@ export async function listNFTForAuction(
       maxSupply: input.maxSupply,
     };
 
+    log.info('Initializing auction', { nftOutput, bondingCurve, input });
     const result = await solanaService.initializeAuction(
       nftOutput.tokenId,
+      new PublicKey(nftOutput.merkleTree),
       bondingCurve,
       input.ownerAddress,
     );
@@ -100,7 +111,7 @@ export async function listNFTForAuction(
       message: `NFT listed for auction`,
     };
   } catch (error) {
-    console.error('Error in listNFTForAuction activity:', error);
+    log.error('Error in listNFTForAuction activity:', { error });
     return {
       auctionAddress: '',
       transactionHash: '',

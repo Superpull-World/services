@@ -1,23 +1,47 @@
 import { Request, Response, NextFunction } from 'express';
 import { createTemporalClient } from '../services/temporal';
 import { v4 as uuidv4 } from 'uuid';
-import { workflowRegistry } from '../workflows/registry'; // Import the workflow registry
+import { workflowRegistry } from '../workflows/registry';
+import { loggerService } from '../services/logger';
+import { LogContext } from '../services/logger';
+
+interface WorkflowError extends Error {
+  workflowName?: string;
+  workflowId?: string;
+}
 
 class WorkflowController {
   findWorkflow = (name: string) => {
+    loggerService.debug('Finding workflow in registry', {
+      workflowName: name,
+    });
     const workflow = workflowRegistry[name as keyof typeof workflowRegistry];
+
     if (!workflow) {
+      loggerService.warn('Workflow not found in registry', {
+        workflowName: name,
+      });
       return { workflow: null, queries: null, taskQueue: null };
     }
 
+    loggerService.debug('Workflow found in registry', {
+      workflowName: name,
+      taskQueue: workflow.taskQueue,
+    });
     return workflow;
   };
 
   startWorkflow = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { name, args } = req.body;
+      const context: LogContext = {
+        workflowName: name,
+        args: args ? JSON.stringify(args) : undefined,
+      };
+      loggerService.info('Starting workflow', context);
 
       if (!name) {
+        loggerService.warn('Workflow name not provided in request');
         res.status(400).json({
           message: 'Workflow name is required',
         });
@@ -26,9 +50,15 @@ class WorkflowController {
 
       const client = await createTemporalClient();
       const id = `${name}-${uuidv4()}`;
+      loggerService.debug('Generated workflow ID', {
+        workflowId: id,
+      });
 
       const { workflow, taskQueue } = this.findWorkflow(name);
       if (!workflow) {
+        loggerService.error('Workflow not found', new Error(), {
+          workflowName: name,
+        });
         res.status(404).json({
           message: `Workflow ${name} not found in registry`,
         });
@@ -41,11 +71,24 @@ class WorkflowController {
         workflowId: id,
       });
 
+      loggerService.info('Workflow started successfully', {
+        workflowId: id,
+        workflowName: name,
+        taskQueue: taskQueue || undefined,
+      });
+
       res.status(200).json({
         message: `Workflow ${name} started`,
         id,
       });
-    } catch (error) {
+    } catch (err) {
+      const error = err as WorkflowError;
+      error.workflowName = req.body.name;
+      const context: LogContext = {
+        workflowName: req.body.name,
+        args: req.body.args ? JSON.stringify(req.body.args) : undefined,
+      };
+      loggerService.error('Error starting workflow', error, context);
       next(error);
     }
   };
@@ -56,9 +99,13 @@ class WorkflowController {
     next: NextFunction,
   ) => {
     try {
-      const { id } = req.query;
+      const id = req.query.id as string;
+      loggerService.info('Getting workflow status', {
+        workflowId: id,
+      });
 
       if (!id) {
+        loggerService.warn('Workflow ID not provided in request');
         res.status(400).json({
           message: 'Workflow ID is required',
         });
@@ -66,13 +113,24 @@ class WorkflowController {
       }
 
       const client = await createTemporalClient();
-      const handle = client.getHandle(id as string);
+      const handle = client.getHandle(id);
 
-      const idStr = id as string;
-      const name = idStr.substring(0, idStr.indexOf('-'));
+      const name = id.substring(0, id.indexOf('-'));
+      loggerService.debug('Extracted workflow name', {
+        workflowId: id,
+        workflowName: name,
+      });
 
       const { workflow, queries } = this.findWorkflow(name);
       if (!workflow) {
+        loggerService.error(
+          'Workflow not found for status check',
+          new Error(),
+          {
+            workflowId: id,
+            workflowName: name,
+          },
+        );
         res.status(404).json({
           message: `Workflow ${name} not found in registry`,
         });
@@ -82,12 +140,26 @@ class WorkflowController {
       const queryResults: Record<string, string> = {};
 
       if (queries) {
+        loggerService.debug('Executing workflow queries', {
+          workflowId: id,
+          queryCount: Object.keys(queries).length.toString(),
+        });
+
         for (const [queryName, queryFunction] of Object.entries(queries)) {
           try {
             const queryResult = await handle.query(queryFunction);
             queryResults[queryName] = queryResult;
-          } catch (e) {
-            console.error(`Error querying ${queryName}:`, e);
+            loggerService.debug('Query executed successfully', {
+              workflowId: id,
+              queryName,
+            });
+          } catch (err) {
+            const error = err as WorkflowError;
+            error.workflowId = id;
+            loggerService.error('Error executing query', error, {
+              workflowId: id,
+              queryName,
+            });
           }
         }
       }
@@ -95,13 +167,26 @@ class WorkflowController {
       const result = await handle.result();
       const status = (await handle.describe()).status;
 
+      loggerService.info('Workflow status retrieved successfully', {
+        workflowId: id,
+        statusCode: status.code.toString(),
+        hasResult: result ? 'true' : 'false',
+        queryCount: Object.keys(queryResults).length.toString(),
+      });
+
       res.status(200).json({
         message: `Status of workflow ${id}`,
         result,
         status,
         queries: queryResults,
       });
-    } catch (error) {
+    } catch (err) {
+      const error = err as WorkflowError;
+      error.workflowId = req.query.id as string;
+      const context: LogContext = {
+        workflowId: (req.query.id as string) || undefined,
+      };
+      loggerService.error('Error getting workflow status', error, context);
       next(error);
     }
   };

@@ -37,3 +37,6 @@ bigquery-sa.json
 # Contract Keys
 mint.json
 authority.json
+
+# Temporal Logs
+*.log

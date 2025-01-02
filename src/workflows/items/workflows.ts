@@ -1,5 +1,6 @@
 import { proxyActivities } from '@temporalio/workflow';
 import * as workflow from '@temporalio/workflow';
+import { log } from '@temporalio/workflow';
 
 import type * as activities from './activities';
 import { WorkflowEntry } from '../registry';
@@ -25,10 +26,12 @@ export interface CreateItemWorkflow
 export const createItemWorkflowFunction = async (
   input: activities.CreateItemInput,
 ) => {
+  log.info('Creating item workflow', { input });
   workflow.setHandler(status, () => 'creating-compressed-nft');
   const nftResult = await createCompressedNFT(input);
 
   if (nftResult.status === 'failed') {
+    log.error('NFT creation failed', { nftResult });
     workflow.setHandler(status, () => 'nft-creation-failed');
     return {
       ...nftResult,
@@ -37,10 +40,12 @@ export const createItemWorkflowFunction = async (
     };
   }
 
+  log.info('Listing NFT for auction', { input, nftResult });
   workflow.setHandler(status, () => 'listing-for-auction');
   const auctionResult = await listNFTForAuction(input, nftResult);
 
   if (auctionResult.status === 'failed') {
+    log.error('Auction listing failed', { auctionResult });
     workflow.setHandler(status, () => 'auction-listing-failed');
     return {
       ...nftResult,
@@ -49,6 +54,7 @@ export const createItemWorkflowFunction = async (
     };
   }
 
+  log.info('Item workflow completed', { auctionResult });
   workflow.setHandler(status, () => 'completed');
   return {
     ...nftResult,
