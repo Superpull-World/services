@@ -65,18 +65,6 @@ COLLECTION_MINT=<collection-nft-mint>
 - Price updates and state management
 - Direct interaction with on-chain program
 
-## Project Structure
-
-```
-src/
-├── services/            # Business logic services
-│   ├── solana.ts       # Solana blockchain interactions
-│   └── anchor-client.ts # Anchor program client
-├── workflows/           # Temporal workflow definitions
-├── types/              # TypeScript type definitions
-│   └── superpull_program.ts # Anchor program types
-└── idl/               # Anchor program IDL
-```
 
 ## Available Operations
 
