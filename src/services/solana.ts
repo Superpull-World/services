@@ -20,7 +20,10 @@ import {
   mintToCollectionV1,
   createTree,
 } from '@metaplex-foundation/mpl-bubblegum';
-import { createNft } from '@metaplex-foundation/mpl-token-metadata';
+import {
+  createNft,
+  mplTokenMetadata,
+} from '@metaplex-foundation/mpl-token-metadata';
 import {
   keypairIdentity,
   Umi,
@@ -80,7 +83,8 @@ export class SolanaService {
     this.umi = createUmi(endpoint)
       .use(keypairIdentity(fromWeb3JsKeypair(this.payer)))
       .use(mplBubblegum())
-      .use(dasApi());
+      .use(dasApi())
+      .use(mplTokenMetadata());
 
     // Initialize Anchor client
     const provider = new anchor.AnchorProvider(
@@ -102,7 +106,7 @@ export class SolanaService {
       // Try to fetch existing collection using a deterministic seed
       const [collectionAddress] = PublicKey.findProgramAddressSync(
         [Buffer.from('superpull_collection')],
-        this.nftProgramId,
+        new PublicKey(this.anchorClient.program.idl.address),
       );
 
       const collectionAccount =
@@ -172,7 +176,7 @@ export class SolanaService {
       // Create the NFT state account
       const [nftStateAccount] = await PublicKey.findProgramAddress(
         [Buffer.from('nft_state'), mint.toBuffer()],
-        this.nftProgramId,
+        new PublicKey(this.anchorClient.program.idl.address),
       );
 
       // Initialize NFT with bonding curve parameters
@@ -183,7 +187,7 @@ export class SolanaService {
           lamports:
             await this.connection.getMinimumBalanceForRentExemption(1000),
           space: 1000,
-          programId: this.nftProgramId,
+          programId: new PublicKey(this.anchorClient.program.idl.address),
         }),
         {
           keys: [
@@ -191,7 +195,7 @@ export class SolanaService {
             { pubkey: mint, isSigner: false, isWritable: false },
             { pubkey: this.payer.publicKey, isSigner: true, isWritable: true },
           ],
-          programId: this.nftProgramId,
+          programId: new PublicKey(this.anchorClient.program.idl.address),
           data: Buffer.from(
             JSON.stringify({
               instruction: 'initialize_nft',
@@ -229,7 +233,7 @@ export class SolanaService {
       // Get the NFT state account
       const [nftStateAccount] = await PublicKey.findProgramAddress(
         [Buffer.from('nft_state'), mint.toBuffer()],
-        this.nftProgramId,
+        new PublicKey(this.anchorClient.program.idl.address),
       );
 
       // Create buyer's token account if it doesn't exist
@@ -253,7 +257,7 @@ export class SolanaService {
           { pubkey: buyerPublicKey, isSigner: true, isWritable: true },
           { pubkey: this.payer.publicKey, isSigner: true, isWritable: true },
         ],
-        programId: this.nftProgramId,
+        programId: new PublicKey(this.anchorClient.program.idl.address),
         data: Buffer.from(
           JSON.stringify({
             instruction: 'purchase_edition',
@@ -279,7 +283,7 @@ export class SolanaService {
     try {
       const [nftStateAccount] = await PublicKey.findProgramAddress(
         [Buffer.from('nft_state'), mint.toBuffer()],
-        this.nftProgramId,
+        new PublicKey(this.anchorClient.program.idl.address),
       );
 
       const accountInfo = await this.connection.getAccountInfo(nftStateAccount);
@@ -328,8 +332,11 @@ export class SolanaService {
       // Send and confirm the tree creation
       await (await treeBuilder).sendAndConfirm(this.umi);
 
-      log.debug('Merkle tree created', {
+      log.info('Merkle tree created', {
         treeAddress: merkleTreeKeypair.publicKey.toString(),
+        leafOwner: ownerPublicKey.toBase58(),
+        collectionMint: this.collectionMint.toBase58(),
+        payer: this.payer.publicKey.toBase58(),
       });
 
       // Create the NFT using the new tree
