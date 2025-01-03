@@ -63,7 +63,6 @@ export interface BondingCurveParams {
 export class SolanaService {
   private connection: Connection;
   private payer: Keypair;
-  private nftProgramId: PublicKey;
   private umi: Umi;
   private collectionMint!: PublicKey;
   private anchorClient: AnchorClient;
@@ -72,13 +71,11 @@ export class SolanaService {
     endpoint: string = process.env.SOLANA_RPC_ENDPOINT ||
       'https://api.devnet.solana.com',
     payerPrivateKey: string = process.env.SOLANA_PRIVATE_KEY!,
-    nftProgramId: string = process.env.SUPERPULL_PROGRAM_ID!,
   ) {
     this.connection = new Connection(endpoint, 'confirmed');
     this.payer = Keypair.fromSecretKey(
       Buffer.from(JSON.parse(payerPrivateKey)),
     );
-    this.nftProgramId = new PublicKey(nftProgramId);
 
     this.umi = createUmi(endpoint)
       .use(keypairIdentity(fromWeb3JsKeypair(this.payer)))
@@ -93,9 +90,8 @@ export class SolanaService {
     );
     log.info('Initializing Anchor client', {
       provider,
-      nftProgramId: this.nftProgramId,
     });
-    this.anchorClient = new AnchorClient(provider, this.nftProgramId);
+    this.anchorClient = new AnchorClient(provider);
 
     // Initialize collection
     this.initializeCollection().catch(console.error);

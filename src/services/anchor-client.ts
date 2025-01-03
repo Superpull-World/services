@@ -21,13 +21,12 @@ interface PlaceBidAccounts {
 export class AnchorClient {
   program: Program<SuperpullProgram>;
 
-  constructor(provider: anchor.AnchorProvider, programId: PublicKey) {
-    log.info('Initializing Anchor client', {
+  constructor(provider: anchor.AnchorProvider) {
+    log.debug('Initializing Anchor client', {
       IDL,
-      programId: programId.toString(),
     });
     // @ts-expect-error IDL type mismatch
-    this.program = new Program(IDL, programId, provider);
+    this.program = new Program(IDL, provider);
   }
 
   async initializeAuction(
