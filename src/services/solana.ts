@@ -62,6 +62,7 @@ export interface BondingCurveParams {
   slope: number;
   minimumPurchase: number;
   maxSupply: number;
+  minimumItems: number;
 }
 
 export class SolanaService {
@@ -121,7 +122,10 @@ export class SolanaService {
         const collectionKeypair = this.umi.eddsa.createKeypairFromSecretKey(
           this.collectionMint.secretKey,
         );
-        const collectionSigner = createSignerFromKeypair(this.umi, collectionKeypair);
+        const collectionSigner = createSignerFromKeypair(
+          this.umi,
+          collectionKeypair,
+        );
 
         const builder = createNft(this.umi, {
           mint: collectionSigner,
@@ -354,7 +358,7 @@ export class SolanaService {
       // Create the NFT using the new tree
       const nftBuilder = transactionBuilder().add(
         mintToCollectionV1(this.umi, {
-          leafOwner: fromWeb3JsPublicKey(ownerPublicKey),
+          leafOwner: fromWeb3JsPublicKey(this.payer.publicKey),
           merkleTree: merkleTreeKeypair.publicKey,
           collectionMint: fromWeb3JsPublicKey(this.collectionMint.publicKey),
           metadata: {
@@ -438,6 +442,7 @@ export class SolanaService {
         bondingCurve.initialPrice,
         bondingCurve.slope,
         bondingCurve.maxSupply,
+        bondingCurve.minimumItems,
       );
 
       return {

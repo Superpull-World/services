@@ -119,6 +119,10 @@ export type SuperpullProgram = {
         {
           "name": "maxSupply",
           "type": "u64"
+        },
+        {
+          "name": "minimumItems",
+          "type": "u64"
         }
       ]
     },
@@ -174,6 +178,19 @@ export type SuperpullProgram = {
   ],
   "events": [
     {
+      "name": "auctionGraduated",
+      "discriminator": [
+        92,
+        21,
+        127,
+        141,
+        141,
+        109,
+        10,
+        141
+      ]
+    },
+    {
       "name": "bidPlaced",
       "discriminator": [
         135,
@@ -219,6 +236,26 @@ export type SuperpullProgram = {
   ],
   "types": [
     {
+      "name": "auctionGraduated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "totalItems",
+            "type": "u64"
+          },
+          {
+            "name": "totalValueLocked",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "auctionState",
       "type": {
         "kind": "struct",
@@ -250,6 +287,14 @@ export type SuperpullProgram = {
           {
             "name": "totalValueLocked",
             "type": "u64"
+          },
+          {
+            "name": "minimumItems",
+            "type": "u64"
+          },
+          {
+            "name": "isGraduated",
+            "type": "bool"
           }
         ]
       }

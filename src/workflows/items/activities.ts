@@ -14,6 +14,7 @@ export interface CreateItemInput {
   price: number;
   ownerAddress: string;
   maxSupply: number;
+  minimumItems: number;
 }
 
 export interface NFTCreationOutput {
@@ -36,13 +37,39 @@ export interface CreateItemOutput extends NFTCreationOutput {
   auctionTransactionHash: string;
 }
 
+export interface CollectionInitOutput {
+  status: 'success' | 'failed';
+  message: string;
+}
+
+export async function initializeCollection(): Promise<CollectionInitOutput> {
+  try {
+    log.info('Initializing collection');
+    const solanaService = new SolanaService();
+    await solanaService.initializeCollection();
+
+    return {
+      status: 'success',
+      message: 'Collection initialized successfully',
+    };
+  } catch (error) {
+    log.error('Error in initializeCollection activity:', { error });
+    return {
+      status: 'failed',
+      message:
+        error instanceof Error
+          ? error.message
+          : 'Collection initialization failed',
+    };
+  }
+}
+
 export async function createCompressedNFT(
   input: CreateItemInput,
 ): Promise<NFTCreationOutput> {
   try {
     log.info('Initializing Solana service', { input });
     const solanaService = new SolanaService();
-    await solanaService.initializeCollection().catch(log.error);
 
     const metadata: NFTMetadata = {
       name: input.name,
@@ -87,17 +114,18 @@ export async function listNFTForAuction(
   nftOutput: NFTCreationOutput,
 ): Promise<AuctionListingOutput> {
   try {
-    log.info('Initializing Solana service', { input });
+    log.info('Listing NFT for auction', { input, nftOutput });
     const solanaService = new SolanaService();
 
+    const LAMPORTS_PER_SOL = 1_000_000_000; // 1 SOL = 1 billion lamports
     const bondingCurve: BondingCurveParams = {
-      initialPrice: input.price,
-      slope: 0.1,
+      initialPrice: input.price * LAMPORTS_PER_SOL,
+      slope: Math.floor(input.price * 0.1 * LAMPORTS_PER_SOL), // 10% price increase per token
       minimumPurchase: 1,
       maxSupply: input.maxSupply,
+      minimumItems: input.minimumItems,
     };
 
-    log.info('Initializing auction', { nftOutput, bondingCurve, input });
     const result = await solanaService.initializeAuction(
       nftOutput.tokenId,
       new PublicKey(nftOutput.merkleTree),
@@ -106,19 +134,18 @@ export async function listNFTForAuction(
     );
 
     return {
-      auctionAddress: result.auctionAddress.toBase58(),
+      auctionAddress: result.auctionAddress.toString(),
       transactionHash: result.txId,
       status: 'success',
-      message: `NFT listed for auction`,
+      message: 'NFT listed for auction successfully',
     };
   } catch (error) {
-    log.error('Error in listNFTForAuction activity:', { error });
+    log.error('Failed to list NFT for auction', { error });
     return {
       auctionAddress: '',
       transactionHash: '',
       status: 'failed',
-      message:
-        error instanceof Error ? error.message : 'Auction listing failed',
+      message: `Failed to list NFT for auction: ${error}`,
     };
   }
 }

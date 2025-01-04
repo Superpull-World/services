@@ -1,38 +1,63 @@
-import { proxyActivities } from '@temporalio/workflow';
-import * as workflow from '@temporalio/workflow';
+import { proxyActivities, defineQuery, setHandler } from '@temporalio/workflow';
 import { log } from '@temporalio/workflow';
-
-import type * as activities from './activities';
+import type {
+  CreateItemInput,
+  CreateItemOutput,
+  createCompressedNFT,
+  listNFTForAuction,
+  initializeCollection,
+} from './activities';
 import { WorkflowEntry } from '../registry';
 
-const { createCompressedNFT, listNFTForAuction } = proxyActivities<
-  typeof activities
->({
-  startToCloseTimeout: '5 minutes',
+const {
+  createCompressedNFT: createNFT,
+  listNFTForAuction: listAuction,
+  initializeCollection: initCollection,
+} = proxyActivities<{
+  createCompressedNFT: typeof createCompressedNFT;
+  listNFTForAuction: typeof listNFTForAuction;
+  initializeCollection: typeof initializeCollection;
+}>({
+  startToCloseTimeout: '1 minute',
 });
 
-export const status = workflow.defineQuery<string>('status');
+export const status = defineQuery<string>('status');
 
 export interface CreateItemWorkflow
-  extends WorkflowEntry<
-    activities.CreateItemInput,
-    activities.CreateItemOutput
-  > {
+  extends WorkflowEntry<CreateItemInput, CreateItemOutput> {
   queries: {
     status: typeof status;
   };
 }
 
 export const createItemWorkflowFunction = async (
-  input: activities.CreateItemInput,
-) => {
-  log.info('Creating item workflow', { input });
-  workflow.setHandler(status, () => 'creating-compressed-nft');
-  const nftResult = await createCompressedNFT(input);
+  input: CreateItemInput,
+): Promise<CreateItemOutput> => {
+  log.info('Starting item workflow', { input });
+  setHandler(status, () => 'initializing-collection');
 
+  // First initialize the collection
+  const collectionResult = await initCollection();
+  if (collectionResult.status === 'failed') {
+    log.error('Collection initialization failed', { collectionResult });
+    setHandler(status, () => 'collection-init-failed');
+    return {
+      tokenId: '',
+      transactionHash: '',
+      status: 'failed',
+      message: `Collection initialization failed: ${collectionResult.message}`,
+      merkleTree: '',
+      auctionAddress: '',
+      auctionTransactionHash: '',
+    };
+  }
+
+  // Create the NFT
+  setHandler(status, () => 'creating-compressed-nft');
+  const nftResult = await createNFT(input);
   if (nftResult.status === 'failed') {
     log.error('NFT creation failed', { nftResult });
-    workflow.setHandler(status, () => 'nft-creation-failed');
+    setHandler(status, () => 'nft-creation-failed');
     return {
       ...nftResult,
       auctionAddress: '',
@@ -40,22 +65,23 @@ export const createItemWorkflowFunction = async (
     };
   }
 
+  // List the NFT for auction
   log.info('Listing NFT for auction', { input, nftResult });
-  workflow.setHandler(status, () => 'listing-for-auction');
-  const auctionResult = await listNFTForAuction(input, nftResult);
+  setHandler(status, () => 'listing-for-auction');
+  const auctionResult = await listAuction(input, nftResult);
 
   if (auctionResult.status === 'failed') {
     log.error('Auction listing failed', { auctionResult });
-    workflow.setHandler(status, () => 'auction-listing-failed');
+    setHandler(status, () => 'auction-listing-failed');
     return {
       ...nftResult,
-      auctionAddress: '',
-      auctionTransactionHash: '',
+      auctionAddress: auctionResult.auctionAddress,
+      auctionTransactionHash: auctionResult.transactionHash,
     };
   }
 
-  log.info('Item workflow completed', { auctionResult });
-  workflow.setHandler(status, () => 'completed');
+  log.info('Item workflow completed successfully');
+  setHandler(status, () => 'completed');
   return {
     ...nftResult,
     auctionAddress: auctionResult.auctionAddress,

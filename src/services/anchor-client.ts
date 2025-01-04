@@ -35,6 +35,7 @@ export class AnchorClient {
     basePrice: number,
     priceIncrement: number,
     maxSupply: number,
+    minimumItems: number,
   ): Promise<{ auctionAddress: PublicKey; signature: string }> {
     log.info('Initializing auction', {
       merkleTree: merkleTree.toString(),
@@ -42,6 +43,7 @@ export class AnchorClient {
       basePrice,
       priceIncrement,
       maxSupply,
+      minimumItems,
     });
 
     const [auctionAddress] = PublicKey.findProgramAddressSync(
@@ -49,28 +51,26 @@ export class AnchorClient {
       this.program.programId,
     );
 
-    const signature = await this.program.methods
+    const accounts: InitializeAuctionAccounts = {
+      auction: auctionAddress,
+      merkleTree,
+      authority,
+      systemProgram: SystemProgram.programId,
+    };
+
+    const tx = await this.program.methods
       .initializeAuction(
         new anchor.BN(basePrice),
         new anchor.BN(priceIncrement),
         new anchor.BN(maxSupply),
+        new anchor.BN(minimumItems),
       )
-      .accounts({
-        auction: auctionAddress,
-        merkleTree,
-        authority,
-        systemProgram: SystemProgram.programId,
-      } as InitializeAuctionAccounts)
+      .accounts(accounts)
       .rpc();
-
-    log.info('Auction initialized', {
-      auctionAddress: auctionAddress.toString(),
-      signature,
-    });
 
     return {
       auctionAddress,
-      signature,
+      signature: tx,
     };
   }
 
