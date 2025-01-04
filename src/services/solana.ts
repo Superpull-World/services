@@ -31,6 +31,7 @@ import {
   transactionBuilder,
   generateSigner,
   percentAmount,
+  createSignerFromKeypair,
 } from '@metaplex-foundation/umi';
 import {
   fromWeb3JsKeypair,
@@ -67,9 +68,8 @@ export class SolanaService {
   private connection: Connection;
   private payer: Keypair;
   private umi: Umi;
-  private collectionMint!: PublicKey;
   private anchorClient: AnchorClient;
-
+  private collectionMint!: Keypair;
   constructor(
     endpoint: string = process.env.SOLANA_RPC_ENDPOINT ||
       'https://api.devnet.solana.com',
@@ -78,6 +78,9 @@ export class SolanaService {
     this.connection = new Connection(endpoint, 'confirmed');
     this.payer = Keypair.fromSecretKey(
       Buffer.from(JSON.parse(payerPrivateKey)),
+    );
+    this.collectionMint = Keypair.fromSecretKey(
+      Buffer.from(JSON.parse(process.env.COLLECTION_PRIVATE_KEY!)),
     );
 
     this.umi = createUmi(endpoint)
@@ -96,31 +99,35 @@ export class SolanaService {
       provider,
     });
     this.anchorClient = new AnchorClient(provider);
-
-    // Initialize collection
-    this.initializeCollection().catch(console.error);
   }
 
-  private async initializeCollection(): Promise<void> {
+  public async initializeCollection(): Promise<void> {
     try {
-      // Try to fetch existing collection using a deterministic seed
-      const [collectionAddress] = PublicKey.findProgramAddressSync(
-        [Buffer.from('superpull_collection')],
-        new PublicKey(this.anchorClient.program.idl.address),
-      );
+      log.info('Checking for collection mint', {
+        collectionAddress: this.collectionMint.publicKey.toString(),
+      });
 
-      const collectionAccount =
-        await this.connection.getAccountInfo(collectionAddress);
+      const collectionAccount = await this.connection.getAccountInfo(
+        this.collectionMint.publicKey,
+      );
 
       if (!collectionAccount) {
         // Collection doesn't exist, create it
-        const collectionMint = generateSigner(this.umi);
+        log.info('Creating collection mint', {
+          collectionMint: this.collectionMint.publicKey.toString(),
+        });
+
+        // Convert the collection mint keypair to Umi signer format
+        const collectionKeypair = this.umi.eddsa.createKeypairFromSecretKey(
+          this.collectionMint.secretKey,
+        );
+        const collectionSigner = createSignerFromKeypair(this.umi, collectionKeypair);
 
         const builder = createNft(this.umi, {
-          mint: collectionMint,
+          mint: collectionSigner,
           name: 'SuperPull Collection',
           symbol: 'SPULL',
-          uri: 'https://superpull.world/collection.json',
+          uri: 'https://assets.superpull.world/collection.json',
           sellerFeeBasisPoints: percentAmount(0),
           isCollection: true,
           creators: null,
@@ -129,9 +136,14 @@ export class SolanaService {
         });
 
         await builder.sendAndConfirm(this.umi);
-        this.collectionMint = new PublicKey(collectionMint.publicKey);
+
+        log.info('Collection mint created', {
+          collectionMint: this.collectionMint.publicKey.toString(),
+        });
       } else {
-        this.collectionMint = collectionAddress;
+        log.info('Collection mint already exists', {
+          collectionMint: this.collectionMint.publicKey.toString(),
+        });
       }
     } catch (error) {
       console.error('Error initializing collection:', error);
@@ -335,7 +347,7 @@ export class SolanaService {
       log.info('Merkle tree created', {
         treeAddress: merkleTreeKeypair.publicKey.toString(),
         leafOwner: ownerPublicKey.toBase58(),
-        collectionMint: this.collectionMint.toBase58(),
+        collectionMint: this.collectionMint.publicKey.toString(),
         payer: this.payer.publicKey.toBase58(),
       });
 
@@ -344,14 +356,14 @@ export class SolanaService {
         mintToCollectionV1(this.umi, {
           leafOwner: fromWeb3JsPublicKey(ownerPublicKey),
           merkleTree: merkleTreeKeypair.publicKey,
-          collectionMint: fromWeb3JsPublicKey(this.collectionMint),
+          collectionMint: fromWeb3JsPublicKey(this.collectionMint.publicKey),
           metadata: {
             name: metadata.name,
             symbol: metadata.symbol,
             uri: metadata.image,
             sellerFeeBasisPoints: 0,
             collection: {
-              key: fromWeb3JsPublicKey(this.collectionMint),
+              key: fromWeb3JsPublicKey(this.collectionMint.publicKey),
               verified: true,
             },
             creators: [

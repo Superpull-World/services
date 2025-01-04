@@ -42,6 +42,7 @@ export async function createCompressedNFT(
   try {
     log.info('Initializing Solana service', { input });
     const solanaService = new SolanaService();
+    await solanaService.initializeCollection().catch(log.error);
 
     const metadata: NFTMetadata = {
       name: input.name,
