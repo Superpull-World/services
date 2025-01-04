@@ -11,12 +11,12 @@ async function run() {
     namespace: process.env.TEMPORAL_NAMESPACE || 'default',
     workflowsPath: require.resolve('../workflows/items/workflows'),
     activities,
-    taskQueue: workflowRegistry.createItemWorkflow.taskQueue,
+    taskQueue: workflowRegistry.createItem.taskQueue,
   });
 
   console.log(
     'Items worker started. Task queue:',
-    workflowRegistry.createItemWorkflow.taskQueue,
+    workflowRegistry.createItem.taskQueue,
   );
   await worker.run();
 }

@@ -6,6 +6,9 @@ import type {
   createCompressedNFT,
   listNFTForAuction,
   initializeCollection,
+  PlaceBidInput,
+  PlaceBidOutput,
+  placeBid,
 } from './activities';
 import { WorkflowEntry } from '../registry';
 
@@ -13,10 +16,12 @@ const {
   createCompressedNFT: createNFT,
   listNFTForAuction: listAuction,
   initializeCollection: initCollection,
+  placeBid: placeBidActivity,
 } = proxyActivities<{
   createCompressedNFT: typeof createCompressedNFT;
   listNFTForAuction: typeof listNFTForAuction;
   initializeCollection: typeof initializeCollection;
+  placeBid: typeof placeBid;
 }>({
   startToCloseTimeout: '1 minute',
 });
@@ -91,6 +96,40 @@ export const createItemWorkflowFunction = async (
 
 export const createItemWorkflow: CreateItemWorkflow = {
   workflow: createItemWorkflowFunction,
+  taskQueue: 'item-task-queue',
+  queries: {
+    status,
+  },
+};
+
+export interface PlaceBidWorkflow
+  extends WorkflowEntry<PlaceBidInput, PlaceBidOutput> {
+  queries: {
+    status: typeof status;
+  };
+}
+
+export const placeBidWorkflowFunction = async (
+  input: PlaceBidInput,
+): Promise<PlaceBidOutput> => {
+  log.info('Starting place bid workflow', { input });
+  setHandler(status, () => 'placing-bid');
+
+  const bidResult = await placeBidActivity(input);
+
+  if (bidResult.status === 'failed') {
+    log.error('Bid placement failed', { bidResult });
+    setHandler(status, () => 'bid-placement-failed');
+    return bidResult;
+  }
+
+  log.info('Bid workflow completed successfully');
+  setHandler(status, () => 'completed');
+  return bidResult;
+};
+
+export const placeBidWorkflow: PlaceBidWorkflow = {
+  workflow: placeBidWorkflowFunction,
   taskQueue: 'item-task-queue',
   queries: {
     status,

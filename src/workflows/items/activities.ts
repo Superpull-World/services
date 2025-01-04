@@ -42,6 +42,19 @@ export interface CollectionInitOutput {
   message: string;
 }
 
+export interface PlaceBidInput {
+  auctionAddress: string;
+  bidderAddress: string;
+  bidAmount: number;
+}
+
+export interface PlaceBidOutput {
+  transactionHash: string;
+  status: 'success' | 'failed';
+  message: string;
+  bidAmount: number;
+}
+
 export async function initializeCollection(): Promise<CollectionInitOutput> {
   try {
     log.info('Initializing collection');
@@ -146,6 +159,34 @@ export async function listNFTForAuction(
       transactionHash: '',
       status: 'failed',
       message: `Failed to list NFT for auction: ${error}`,
+    };
+  }
+}
+
+export async function placeBid(input: PlaceBidInput): Promise<PlaceBidOutput> {
+  try {
+    log.info('Placing bid on auction', { input });
+    const solanaService = new SolanaService();
+
+    const result = await solanaService.placeBid(
+      new PublicKey(input.auctionAddress),
+      input.bidderAddress,
+      input.bidAmount,
+    );
+
+    return {
+      transactionHash: result.txId,
+      status: 'success',
+      message: `Bid placed successfully for ${input.bidAmount} SOL`,
+      bidAmount: input.bidAmount,
+    };
+  } catch (error) {
+    log.error('Error in placeBid activity:', { error });
+    return {
+      transactionHash: '',
+      status: 'failed',
+      message: error instanceof Error ? error.message : 'Bid placement failed',
+      bidAmount: input.bidAmount,
     };
   }
 }

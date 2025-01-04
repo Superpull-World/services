@@ -4,8 +4,13 @@ import {
   SampleWorkflowOutput,
   sampleWorkflow,
 } from './sample/workflows';
-import { createItemWorkflow } from './items/workflows';
-import type { CreateItemInput, CreateItemOutput } from './items/activities';
+import { createItemWorkflow, placeBidWorkflow } from './items/workflows';
+import type {
+  CreateItemInput,
+  CreateItemOutput,
+  PlaceBidInput,
+  PlaceBidOutput,
+} from './items/activities';
 
 export interface WorkflowEntry<Input, Output> {
   workflow: (input: Input) => Promise<Output>;
@@ -15,10 +20,12 @@ export interface WorkflowEntry<Input, Output> {
 
 interface WorkflowRegistry {
   sampleWorkflow: WorkflowEntry<SampleWorkflowInput, SampleWorkflowOutput>;
-  createItemWorkflow: WorkflowEntry<CreateItemInput, CreateItemOutput>;
+  createItem: WorkflowEntry<CreateItemInput, CreateItemOutput>;
+  placeBid: WorkflowEntry<PlaceBidInput, PlaceBidOutput>;
 }
 
 export const workflowRegistry: WorkflowRegistry = {
   sampleWorkflow,
-  createItemWorkflow,
+  createItem: createItemWorkflow,
+  placeBid: placeBidWorkflow,
 };

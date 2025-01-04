@@ -110,29 +110,28 @@ export class AnchorClient {
     bidder: PublicKey,
     amount: number,
   ): Promise<string> {
-    log.info('Placing bid', {
+    log.info('Placing bid through Anchor program', {
       auction: auction.toString(),
       bidder: bidder.toString(),
-      amount,
+      amount: amount.toString(),
     });
 
-    const signature = await this.program.methods
+    const accounts: PlaceBidAccounts = {
+      auction,
+      bidder,
+      systemProgram: SystemProgram.programId,
+    };
+
+    const tx = await this.program.methods
       .placeBid(new anchor.BN(amount))
-      .accounts({
-        auction,
-        bidder,
-        systemProgram: SystemProgram.programId,
-      } as PlaceBidAccounts)
+      .accounts(accounts)
       .rpc();
 
-    log.info('Bid placed', {
-      auction: auction.toString(),
-      bidder: bidder.toString(),
-      amount,
-      signature,
+    log.info('Bid placed successfully', {
+      signature: tx,
     });
 
-    return signature;
+    return tx;
   }
 
   async getAuctionState(auctionAddress: PublicKey) {

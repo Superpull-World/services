@@ -454,4 +454,30 @@ export class SolanaService {
       throw error;
     }
   }
+
+  async placeBid(
+    auctionAddress: PublicKey,
+    bidderAddress: string,
+    bidAmount: number,
+  ): Promise<{ txId: string }> {
+    log.info('Placing bid on auction', {
+      auctionAddress: auctionAddress.toString(),
+      bidderAddress,
+      bidAmount,
+    });
+
+    const LAMPORTS_PER_SOL = 1_000_000_000; // 1 SOL = 1 billion lamports
+    const bidAmountLamports = Math.floor(bidAmount * LAMPORTS_PER_SOL);
+
+    const bidderPublicKey = new PublicKey(bidderAddress);
+    const signature = await this.anchorClient.placeBid(
+      auctionAddress,
+      bidderPublicKey,
+      bidAmountLamports,
+    );
+
+    return {
+      txId: signature,
+    };
+  }
 }
