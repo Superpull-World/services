@@ -12,18 +12,57 @@ import type {
   PlaceBidOutput,
 } from './items/activities';
 import { authWorkflow, AuthState } from './auth/workflows';
+import {
+  getAuctionsWorkflow,
+  getAuctionDetailsWorkflow,
+} from './auctions/workflows';
+import type {
+  GetAuctionsInput,
+  GetAuctionsOutput,
+  GetAuctionDetailsInput,
+  GetAuctionDetailsOutput,
+} from './auctions/activities';
 
-export interface WorkflowEntry<Input, Output, QueryResult = string> {
+export type QueryResult =
+  | string
+  | GetAuctionsOutput
+  | GetAuctionDetailsOutput
+  | AuthState
+  | null;
+
+export interface WorkflowEntry<
+  Input,
+  Output,
+  Queries = Record<string, QueryResult>,
+> {
   workflow: (input: Input) => Promise<Output>;
   taskQueue: string;
-  queries: Record<string, QueryDefinition<QueryResult>>;
+  queries: {
+    [K in keyof Queries]: QueryDefinition<Queries[K]>;
+  };
 }
 
 interface WorkflowRegistry {
   sampleWorkflow: WorkflowEntry<SampleWorkflowInput, SampleWorkflowOutput>;
   createItem: WorkflowEntry<CreateItemInput, CreateItemOutput>;
   placeBid: WorkflowEntry<PlaceBidInput, PlaceBidOutput>;
-  auth: WorkflowEntry<string, void, AuthState>;
+  auth: WorkflowEntry<string, void, { getState: AuthState }>;
+  getAuctions: WorkflowEntry<
+    GetAuctionsInput,
+    GetAuctionsOutput,
+    {
+      status: string;
+      auctionsResult: GetAuctionsOutput | null;
+    }
+  >;
+  getAuctionDetails: WorkflowEntry<
+    GetAuctionDetailsInput,
+    GetAuctionDetailsOutput,
+    {
+      status: string;
+      detailsResult: GetAuctionDetailsOutput | null;
+    }
+  >;
 }
 
 export const workflowRegistry: WorkflowRegistry = {
@@ -31,4 +70,6 @@ export const workflowRegistry: WorkflowRegistry = {
   createItem: createItemWorkflow,
   placeBid: placeBidWorkflow,
   auth: authWorkflow,
+  getAuctions: getAuctionsWorkflow,
+  getAuctionDetails: getAuctionDetailsWorkflow,
 };

@@ -39,6 +39,8 @@ import {
 } from '@metaplex-foundation/umi-web3js-adapters';
 import * as anchor from '@coral-xyz/anchor';
 import { AnchorClient } from './anchor-client';
+import { AuctionDetails } from './types';
+import bs58 from 'bs58';
 
 export interface NFTMetadata {
   name: string;
@@ -63,6 +65,28 @@ export interface BondingCurveParams {
   minimumPurchase: number;
   maxSupply: number;
   minimumItems: number;
+}
+
+export interface AuctionQueryParams {
+  merkleTree?: string;
+  authority?: string;
+  isGraduated?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AuctionQueryResult {
+  auctions: Array<{
+    auctionAddress: string;
+    tokenId: string;
+    currentPrice: number;
+    highestBidder: string;
+    endTime: number;
+    status: 'active' | 'ended' | 'cancelled';
+    ownerAddress: string;
+    minimumBid: number;
+  }>;
+  total: number;
 }
 
 export class SolanaService {
@@ -482,14 +506,10 @@ export class SolanaService {
   }
 
   async initializeAuction(
-    tokenId: string,
     merkleTree: PublicKey,
     bondingCurve: BondingCurveParams,
-    ownerAddress: string,
   ): Promise<{ auctionAddress: PublicKey; txId: string }> {
     try {
-      const ownerPublicKey = new PublicKey(ownerAddress);
-
       const result = await this.anchorClient.initializeAuction(
         merkleTree,
         this.payer.publicKey,
@@ -533,5 +553,211 @@ export class SolanaService {
     return {
       txId: signature,
     };
+  }
+
+  async getAuctions(
+    params: AuctionQueryParams,
+  ): Promise<{ auctions: AuctionDetails[]; total: number }> {
+    try {
+      const program = this.anchorClient.program;
+
+      // Convert discriminator to base58
+      const discriminator = Buffer.from([252, 227, 205, 147, 72, 64, 250, 126]);
+      const filters = [
+        {
+          memcmp: {
+            offset: 0,
+            bytes: bs58.encode(discriminator),
+          },
+        },
+      ];
+
+      if (params.merkleTree) {
+        try {
+          const merkleTreePubkey = new PublicKey(params.merkleTree);
+          filters.push({
+            memcmp: {
+              offset: 8 + 32, // discriminator + authority
+              bytes: merkleTreePubkey.toBase58(),
+            },
+          });
+        } catch (e) {
+          log.error('Invalid merkle tree public key', { error: e });
+        }
+      }
+
+      if (params.authority) {
+        try {
+          const authorityPubkey = new PublicKey(params.authority);
+          filters.push({
+            memcmp: {
+              offset: 8, // discriminator
+              bytes: authorityPubkey.toBase58(),
+            },
+          });
+        } catch (e) {
+          log.error('Invalid authority public key', { error: e });
+        }
+      }
+
+      if (params.isGraduated !== undefined) {
+        filters.push({
+          memcmp: {
+            offset: 8 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8, // All fields before isGraduated
+            bytes: bs58.encode(Buffer.from([params.isGraduated ? 1 : 0])),
+          },
+        });
+      }
+
+      log.info('Fetching auction accounts with filters', {
+        filters,
+        programId: program.programId.toString(),
+        discriminator: discriminator.toString('hex'),
+        discriminatorBase58: bs58.encode(discriminator),
+      });
+
+      // First try to get all accounts for the program
+      const allAccounts = await this.connection.getProgramAccounts(
+        program.programId,
+        { filters },
+      );
+
+      log.info('All program accounts', {
+        count: allAccounts.length,
+        accounts: allAccounts.map((a) => ({
+          pubkey: a.pubkey.toString(),
+          dataLength: a.account.data.length,
+          discriminator: a.account.data.slice(0, 8).toString('hex'),
+        })),
+      });
+
+      const auctions = await program.account.auctionState.all(filters);
+
+      log.info('Found auction accounts', {
+        count: auctions.length,
+        auctions: auctions.map((a) => ({
+          address: a.publicKey.toString(),
+          authority: a.account.authority.toString(),
+          merkleTree: a.account.merkleTree.toString(),
+        })),
+      });
+
+      const auctionDetails = await Promise.all(
+        auctions
+          .slice(
+            params.offset || 0,
+            (params.offset || 0) + (params.limit || 10),
+          )
+          .map(async ({ publicKey, account }) => {
+            const currentPrice =
+              account.basePrice.toNumber() +
+              account.priceIncrement.toNumber() *
+                account.currentSupply.toNumber();
+
+            // Fetch NFT metadata from the merkle tree
+            const { items } = await this.umi.rpc.getAssetsByOwner({
+              owner: fromWeb3JsPublicKey(account.merkleTree),
+              sortBy: { sortBy: 'created', sortDirection: 'desc' },
+              limit: 1,
+            });
+
+            // Get the JSON metadata from the asset
+            let nftMetadata = {
+              name: `SuperPull NFT #${account.currentSupply.toNumber() + 1}`,
+              symbol: 'SPULL',
+              description: 'A unique SuperPull NFT with bonding curve pricing',
+              uri: 'https://assets.superpull.world/placeholder.png',
+            };
+
+            if (items.length > 0 && items[0].content.metadata?.uri) {
+              try {
+                const response = await fetch(items[0].content.metadata.uri as string);
+                if (response.ok) {
+                  const metadata = (await response.json()) as NFTMetadata;
+                  nftMetadata = {
+                    name: metadata.name || nftMetadata.name,
+                    symbol: metadata.symbol || nftMetadata.symbol,
+                    description: metadata.description || nftMetadata.description,
+                    uri: metadata.image || nftMetadata.uri,
+                  };
+                }
+              } catch (error) {
+                log.error('Failed to fetch NFT metadata', {
+                  error,
+                  uri: items[0].content.metadata.uri,
+                });
+              }
+            }
+
+            return {
+              address: publicKey.toString(),
+              name: nftMetadata.name,
+              description: nftMetadata.description,
+              imageUrl: nftMetadata.uri,
+              authority: account.authority.toString(),
+              merkleTree: account.merkleTree.toString(),
+              basePrice: account.basePrice.toNumber() / 1e9,
+              priceIncrement: account.priceIncrement.toNumber() / 1e9,
+              currentSupply: account.currentSupply.toNumber(),
+              maxSupply: account.maxSupply.toNumber(),
+              minimumItems: account.minimumItems.toNumber(),
+              totalValueLocked: account.totalValueLocked.toNumber() / 1e9,
+              currentPrice: currentPrice / 1e9,
+              isGraduated: account.isGraduated,
+              status: account.isGraduated ? 'Graduated' : 'Active',
+              progressPercentage:
+                account.currentSupply.toNumber() /
+                account.minimumItems.toNumber(),
+            };
+          }),
+      );
+
+      return {
+        auctions: auctionDetails,
+        total: auctions.length,
+      };
+    } catch (error) {
+      log.error('Failed to fetch auctions', { error });
+      return {
+        auctions: [],
+        total: 0,
+      };
+    }
+  }
+
+  async getAuctionDetails(
+    auctionAddress: string,
+  ): Promise<AuctionDetails | null> {
+    try {
+      const program = this.anchorClient.program;
+      const auctionPubkey = new PublicKey(auctionAddress);
+      const account = await program.account.auctionState.fetch(auctionPubkey);
+
+      if (!account) return null;
+
+      const currentPrice =
+        account.basePrice.toNumber() +
+        account.priceIncrement.toNumber() * account.currentSupply.toNumber();
+
+      return {
+        address: auctionAddress,
+        name: `SuperPull NFT #${account.currentSupply.toNumber() + 1}`,
+        description: 'A unique SuperPull NFT with bonding curve pricing',
+        imageUrl: 'https://assets.superpull.world/placeholder.png',
+        authority: account.authority.toString(),
+        merkleTree: account.merkleTree.toString(),
+        basePrice: account.basePrice.toNumber() / 1e9, // Convert from lamports to SOL
+        priceIncrement: account.priceIncrement.toNumber() / 1e9, // Convert from lamports to SOL
+        currentSupply: account.currentSupply.toNumber(),
+        maxSupply: account.maxSupply.toNumber(),
+        totalValueLocked: account.totalValueLocked.toNumber() / 1e9, // Convert from lamports to SOL
+        minimumItems: account.minimumItems.toNumber(),
+        isGraduated: account.isGraduated,
+        currentPrice: currentPrice / 1e9, // Convert from lamports to SOL
+      };
+    } catch (error) {
+      log.error('Failed to fetch auction details', { error });
+      return null;
+    }
   }
 }

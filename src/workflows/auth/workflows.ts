@@ -26,11 +26,7 @@ export interface AuthState {
 export const submitSignature = defineSignal<[string]>('submitSignature');
 export const getState = defineQuery<AuthState>('getState');
 
-export interface AuthWorkflow extends WorkflowEntry<string, void, AuthState> {
-  queries: {
-    getState: typeof getState;
-  };
-}
+export type AuthWorkflow = WorkflowEntry<string, void, { getState: AuthState }>;
 
 export async function auth(publicKey: string): Promise<void> {
   const state: AuthState = {

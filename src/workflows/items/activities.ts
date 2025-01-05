@@ -179,10 +179,8 @@ export async function listNFTForAuction(
     };
 
     const result = await solanaService.initializeAuction(
-      nftOutput.tokenId,
       new PublicKey(nftOutput.merkleTree),
       bondingCurve,
-      input.ownerAddress,
     );
 
     return {
