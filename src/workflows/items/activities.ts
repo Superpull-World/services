@@ -6,6 +6,7 @@ import {
   NFTMetadata,
   BondingCurveParams,
 } from '../../services/solana';
+import { verifyJWT } from '../../services/jwt';
 
 export interface CreateItemInput {
   name: string;
@@ -15,6 +16,7 @@ export interface CreateItemInput {
   ownerAddress: string;
   maxSupply: number;
   minimumItems: number;
+  jwt: string;
 }
 
 export interface NFTCreationOutput {
@@ -46,6 +48,7 @@ export interface PlaceBidInput {
   auctionAddress: string;
   bidderAddress: string;
   bidAmount: number;
+  jwt: string;
 }
 
 export interface PlaceBidOutput {
@@ -53,6 +56,39 @@ export interface PlaceBidOutput {
   status: 'success' | 'failed';
   message: string;
   bidAmount: number;
+}
+
+export interface JWTVerificationInput {
+  jwt: string;
+  walletAddress: string;
+}
+
+export interface JWTVerificationOutput {
+  isValid: boolean;
+  message?: string;
+}
+
+export async function verifyUserJWT(
+  input: JWTVerificationInput,
+): Promise<JWTVerificationOutput> {
+  try {
+    const jwtPayload = await verifyJWT(input.jwt);
+    if (jwtPayload.publicKey !== input.walletAddress) {
+      return {
+        isValid: false,
+        message: 'JWT public key does not match wallet address',
+      };
+    }
+    return {
+      isValid: true,
+    };
+  } catch (error) {
+    return {
+      isValid: false,
+      message:
+        error instanceof Error ? error.message : 'JWT verification failed',
+    };
+  }
 }
 
 export async function initializeCollection(): Promise<CollectionInitOutput> {
@@ -116,7 +152,8 @@ export async function createCompressedNFT(
       tokenId: '',
       transactionHash: '',
       status: 'failed',
-      message: error instanceof Error ? error.message : 'NFT creation failed',
+      message:
+        error instanceof Error ? error.message : 'Unknown error occurred',
       merkleTree: '',
     };
   }
@@ -185,7 +222,8 @@ export async function placeBid(input: PlaceBidInput): Promise<PlaceBidOutput> {
     return {
       transactionHash: '',
       status: 'failed',
-      message: error instanceof Error ? error.message : 'Bid placement failed',
+      message:
+        error instanceof Error ? error.message : 'Unknown error occurred',
       bidAmount: input.bidAmount,
     };
   }

@@ -1,0 +1,24 @@
+POST http://localhost:5050/api/workflow/start
+content-type: application/json
+
+{
+  "name": "createItem",
+  "args": [
+    {
+      "name": "Sample NFT",
+      "description": "A sample NFT for testing",
+      "imageUrl": "https://example.com/image.png",
+      "price": 1.5,
+      "ownerAddress": "YOUR_SOLANA_PUBLIC_KEY",
+      "maxSupply": 100,
+      "minimumItems": 10,
+      "jwt": "YOUR_JWT_TOKEN"
+    }
+  ]
+}
+
+### Example Response:
+### {
+###   "runId": "create-item-xxxxx-xxxxx",
+###   "workflowId": "create-item-xxxxx-xxxxx"
+### } 

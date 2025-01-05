@@ -12,7 +12,7 @@ superpull_program = "EDX7DLx7YwQFFMC9peZh5nDqiB4bKVpa2SpvSfwz4XUG"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "https://devnet.helius-rpc.com/?api-key=0a1fbece-e0b6-4d09-9c6f-5679e9f2910d"
+cluster = "https://devnet.helius-rpc.com/?api-key=637079fc-2bd4-48d5-9110-ab8c012da869"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

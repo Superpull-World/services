@@ -9,6 +9,7 @@ import type {
   PlaceBidInput,
   PlaceBidOutput,
   placeBid,
+  verifyUserJWT,
 } from './activities';
 import { WorkflowEntry } from '../registry';
 
@@ -17,11 +18,13 @@ const {
   listNFTForAuction: listAuction,
   initializeCollection: initCollection,
   placeBid: placeBidActivity,
+  verifyUserJWT: verifyJWT,
 } = proxyActivities<{
   createCompressedNFT: typeof createCompressedNFT;
   listNFTForAuction: typeof listNFTForAuction;
   initializeCollection: typeof initializeCollection;
   placeBid: typeof placeBid;
+  verifyUserJWT: typeof verifyUserJWT;
 }>({
   startToCloseTimeout: '1 minute',
 });
@@ -39,6 +42,28 @@ export const createItemWorkflowFunction = async (
   input: CreateItemInput,
 ): Promise<CreateItemOutput> => {
   log.info('Starting item workflow', { input });
+  setHandler(status, () => 'verifying-jwt');
+
+  // First verify JWT
+  const jwtVerification = await verifyJWT({
+    jwt: input.jwt,
+    walletAddress: input.ownerAddress,
+  });
+
+  if (!jwtVerification.isValid) {
+    log.error('JWT verification failed', { jwtVerification });
+    setHandler(status, () => 'jwt-verification-failed');
+    return {
+      tokenId: '',
+      transactionHash: '',
+      status: 'failed',
+      message: jwtVerification.message || 'JWT verification failed',
+      merkleTree: '',
+      auctionAddress: '',
+      auctionTransactionHash: '',
+    };
+  }
+
   setHandler(status, () => 'initializing-collection');
 
   // First initialize the collection
@@ -112,20 +137,28 @@ export interface PlaceBidWorkflow
 export const placeBidWorkflowFunction = async (
   input: PlaceBidInput,
 ): Promise<PlaceBidOutput> => {
-  log.info('Starting place bid workflow', { input });
-  setHandler(status, () => 'placing-bid');
+  log.info('Starting bid workflow', { input });
+  setHandler(status, () => 'verifying-jwt');
 
-  const bidResult = await placeBidActivity(input);
+  // First verify JWT
+  const jwtVerification = await verifyJWT({
+    jwt: input.jwt,
+    walletAddress: input.bidderAddress,
+  });
 
-  if (bidResult.status === 'failed') {
-    log.error('Bid placement failed', { bidResult });
-    setHandler(status, () => 'bid-placement-failed');
-    return bidResult;
+  if (!jwtVerification.isValid) {
+    log.error('JWT verification failed', { jwtVerification });
+    setHandler(status, () => 'jwt-verification-failed');
+    return {
+      transactionHash: '',
+      status: 'failed',
+      message: jwtVerification.message || 'JWT verification failed',
+      bidAmount: input.bidAmount,
+    };
   }
 
-  log.info('Bid workflow completed successfully');
-  setHandler(status, () => 'completed');
-  return bidResult;
+  setHandler(status, () => 'placing-bid');
+  return await placeBidActivity(input);
 };
 
 export const placeBidWorkflow: PlaceBidWorkflow = {

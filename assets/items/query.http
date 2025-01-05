@@ -1,0 +1,12 @@
+GET http://localhost:5050/api/workflow/query?id=createItem-9a475f35-d0c2-410c-b298-693f73248aa4
+
+### Response will contain the current status of the workflow:
+### - verifying-jwt
+### - initializing-collection
+### - creating-compressed-nft
+### - listing-for-auction
+### - completed
+### - jwt-verification-failed
+### - collection-init-failed
+### - nft-creation-failed
+### - auction-listing-failed 
