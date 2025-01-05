@@ -116,7 +116,7 @@ class WorkflowController {
       const handle = client.getHandle(id);
 
       const name = id.substring(0, id.indexOf('-'));
-      loggerService.debug('Extracted workflow name', {
+      loggerService.info('Extracted workflow name', {
         workflowId: id,
         workflowName: name,
       });
@@ -136,11 +136,15 @@ class WorkflowController {
         });
         return;
       }
+      loggerService.info('Workflow found for status check', {
+        workflowId: id,
+        workflowName: name,
+      });
 
       const queryResults: Record<string, string> = {};
 
       if (queries) {
-        loggerService.debug('Executing workflow queries', {
+        loggerService.info('Executing workflow queries', {
           workflowId: id,
           queryCount: Object.keys(queries).length.toString(),
         });
@@ -149,9 +153,10 @@ class WorkflowController {
           try {
             const queryResult = await handle.query(queryFunction);
             queryResults[queryName] = queryResult;
-            loggerService.debug('Query executed successfully', {
+            loggerService.info('Query executed successfully', {
               workflowId: id,
               queryName,
+              queryResult,
             });
           } catch (err) {
             const error = err as WorkflowError;
@@ -164,19 +169,17 @@ class WorkflowController {
         }
       }
 
-      const result = await handle.result();
+      // const result = await handle.result();
       const status = (await handle.describe()).status;
 
       loggerService.info('Workflow status retrieved successfully', {
         workflowId: id,
         statusCode: status.code.toString(),
-        hasResult: result ? 'true' : 'false',
         queryCount: Object.keys(queryResults).length.toString(),
       });
 
       res.status(200).json({
         message: `Status of workflow ${id}`,
-        result,
         status,
         queries: queryResults,
       });
@@ -187,6 +190,49 @@ class WorkflowController {
         workflowId: (req.query.id as string) || undefined,
       };
       loggerService.error('Error getting workflow status', error, context);
+      next(error);
+    }
+  };
+
+  sendWorkflowSignal = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) => {
+    try {
+      const { workflowId, name, args } = req.body;
+      const context: LogContext = {
+        workflowId,
+        signalName: name,
+        args: args ? JSON.stringify(args) : undefined,
+      };
+      loggerService.info('Sending workflow signal', context);
+
+      if (!workflowId || !name) {
+        loggerService.warn('Missing required parameters', context);
+        res.status(400).json({
+          message: 'workflowId and signalName are required',
+        });
+        return;
+      }
+
+      const client = await createTemporalClient();
+      const handle = client.getHandle(workflowId);
+      await handle.signal(name, args);
+
+      loggerService.info('Signal sent successfully', context);
+      res.status(200).json({
+        message: `Signal ${name} sent to workflow ${workflowId}`,
+      });
+    } catch (err) {
+      const error = err as WorkflowError;
+      error.workflowId = req.body.workflowId;
+      const context: LogContext = {
+        workflowId: req.body.workflowId,
+        signalName: req.body.name,
+        args: req.body.args ? JSON.stringify(req.body.args) : undefined,
+      };
+      loggerService.error('Error sending workflow signal', error, context);
       next(error);
     }
   };

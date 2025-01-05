@@ -1,0 +1,8 @@
+POST http://localhost:5050/api/workflow/signal
+content-type: application/json
+
+{
+  "name": "updateName",
+  "workflowId": "sampleWorkflow-cc63c5c1-dcce-4d86-a3eb-37982c7c5a4b",
+  "args": "Hello, New World!"
+}
