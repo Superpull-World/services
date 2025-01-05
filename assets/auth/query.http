@@ -1,0 +1,6 @@
+GET http://localhost:5050/api/workflow/query?id=auth-1e33778b-fdaf-4740-b35c-13ef5c878d49
+content-type: application/json
+
+### Response will contain either:
+### - nonce (during initial authentication)
+### - jwt (after successful signature verification) 

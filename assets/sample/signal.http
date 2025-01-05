@@ -3,6 +3,6 @@ content-type: application/json
 
 {
   "name": "updateName",
-  "workflowId": "sampleWorkflow-cc63c5c1-dcce-4d86-a3eb-37982c7c5a4b",
+  "workflowId": "sampleWorkflow-ca7ac1b7-c810-4fe3-a9fe-827c833d7fc4",
   "args": "Hello, New World!"
 }

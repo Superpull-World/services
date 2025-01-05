@@ -10,6 +10,10 @@ interface WorkflowError extends Error {
   workflowId?: string;
 }
 
+interface QueryResults {
+  [key: string]: unknown;
+}
+
 class WorkflowController {
   findWorkflow = (name: string) => {
     loggerService.debug('Finding workflow in registry', {
@@ -141,7 +145,7 @@ class WorkflowController {
         workflowName: name,
       });
 
-      const queryResults: Record<string, string> = {};
+      const queryResults: QueryResults = {};
 
       if (queries) {
         loggerService.info('Executing workflow queries', {
@@ -156,14 +160,13 @@ class WorkflowController {
             loggerService.info('Query executed successfully', {
               workflowId: id,
               queryName,
-              queryResult,
+              queryResult: JSON.stringify(queryResult),
             });
           } catch (err) {
             const error = err as WorkflowError;
             error.workflowId = id;
             loggerService.error('Error executing query', error, {
               workflowId: id,
-              queryName,
             });
           }
         }

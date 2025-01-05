@@ -1,0 +1,11 @@
+POST http://localhost:5050/api/workflow/signal
+content-type: application/json
+
+{
+  "name": "submitSignature",
+  "workflowId": "{{workflowId}}",
+  "args": {
+    "signature": "YOUR_SIGNATURE",
+    "publicKey": "YOUR_SOLANA_PUBLIC_KEY"
+  }
+} 
