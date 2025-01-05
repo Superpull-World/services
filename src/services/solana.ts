@@ -76,7 +76,9 @@ export class SolanaService {
       'https://api.devnet.solana.com',
     payerPrivateKey: string = process.env.SOLANA_PRIVATE_KEY!,
   ) {
-    this.connection = new Connection(endpoint, 'confirmed');
+    this.connection = new Connection(endpoint, {
+      commitment: 'confirmed',
+    });
     this.payer = Keypair.fromSecretKey(
       Buffer.from(JSON.parse(payerPrivateKey)),
     );
@@ -94,11 +96,8 @@ export class SolanaService {
     const provider = new anchor.AnchorProvider(
       this.connection,
       new anchor.Wallet(this.payer),
-      { commitment: 'confirmed' },
+      { commitment: 'confirmed', skipPreflight: true },
     );
-    log.info('Initializing Anchor client', {
-      provider,
-    });
     this.anchorClient = new AnchorClient(provider);
   }
 
@@ -325,8 +324,6 @@ export class SolanaService {
         metadata: metadata.name,
       });
 
-      const ownerPublicKey = new PublicKey(ownerAddress);
-
       // Generate a new signer for the tree
       const merkleTreeKeypair = generateSigner(this.umi);
       const merkleTreeDepth = 14;
@@ -350,7 +347,7 @@ export class SolanaService {
 
       log.info('Merkle tree created', {
         treeAddress: merkleTreeKeypair.publicKey.toString(),
-        leafOwner: ownerPublicKey.toBase58(),
+        leafOwner: this.payer.publicKey.toBase58(),
         collectionMint: this.collectionMint.publicKey.toString(),
         payer: this.payer.publicKey.toBase58(),
       });
@@ -364,7 +361,7 @@ export class SolanaService {
           metadata: {
             name: metadata.name,
             symbol: metadata.symbol,
-            uri: metadata.image,
+            uri: 'https://assets.superpull.world/collection.json',
             sellerFeeBasisPoints: 0,
             collection: {
               key: fromWeb3JsPublicKey(this.collectionMint.publicKey),
@@ -381,12 +378,16 @@ export class SolanaService {
         }),
       );
 
-      const result = await nftBuilder.sendAndConfirm(this.umi);
-      const txId = result.signature.toString();
+      const result = await nftBuilder.send(this.umi, {
+        commitment: 'confirmed',
+        skipPreflight: true,
+      });
+      const txId = result.toString();
+      log.info('Transaction sent', { txId });
 
       const assetId = await this.computeAssetId(
         merkleTreeKeypair.publicKey.toString(),
-        ownerPublicKey.toBase58(),
+        this.payer.publicKey.toBase58(),
       );
 
       const response = {
@@ -413,18 +414,71 @@ export class SolanaService {
   }
 
   private async computeAssetId(tree: string, owner: string): Promise<string> {
-    const { items } = await this.umi.rpc.getAssetsByOwner({
-      owner: publicKey(owner),
-      sortBy: { sortBy: 'created', sortDirection: 'desc' },
-    });
+    const maxRetries = 5;
+    const retryDelay = 2000; // 2 seconds
 
-    const asset = items.find((item) => item.compression.tree === tree);
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        log.info('Fetching assets by owner', {
+          owner,
+          attempt: attempt + 1,
+          maxRetries,
+        });
 
-    if (!asset) {
-      throw new Error('Asset not found');
+        const { items } = await this.umi.rpc.getAssetsByOwner({
+          owner: publicKey(owner),
+          sortBy: { sortBy: 'created', sortDirection: 'desc' },
+        });
+
+        log.info('Found assets', {
+          totalAssets: items.length,
+          assets: items.map((item) => ({
+            id: item.id,
+            tree: item.compression.tree,
+            leaf_id: item.compression.leaf_id,
+          })),
+        });
+
+        const treePublicKey = fromWeb3JsPublicKey(new PublicKey(tree));
+        log.info('Looking for asset in tree', {
+          searchTree: treePublicKey,
+          treeString: tree,
+        });
+
+        const asset = items.find(
+          (item) => item.compression.tree === treePublicKey,
+        );
+
+        if (asset) {
+          log.info('Asset found', {
+            assetId: asset.id,
+            tree: asset.compression.tree,
+            leaf_id: asset.compression.leaf_id,
+          });
+          return asset.id;
+        }
+
+        log.info('Asset not found in current attempt, retrying...', {
+          attempt: attempt + 1,
+          maxRetries,
+        });
+
+        if (attempt < maxRetries - 1) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        }
+      } catch (error) {
+        log.error('Error in computeAssetId attempt', {
+          attempt: attempt + 1,
+          error,
+        });
+
+        if (attempt < maxRetries - 1) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        }
+      }
     }
 
-    return asset.id;
+    throw new Error(`Asset not found after ${maxRetries} attempts`);
   }
 
   async initializeAuction(
@@ -438,7 +492,7 @@ export class SolanaService {
 
       const result = await this.anchorClient.initializeAuction(
         merkleTree,
-        ownerPublicKey,
+        this.payer.publicKey,
         bondingCurve.initialPrice,
         bondingCurve.slope,
         bondingCurve.maxSupply,

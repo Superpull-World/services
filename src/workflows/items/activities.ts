@@ -6,7 +6,7 @@ import {
   NFTMetadata,
   BondingCurveParams,
 } from '../../services/solana';
-import { verifyJWT } from '../../services/jwt';
+import { JWTPayload, verifyJWT } from '../../services/jwt';
 
 export interface CreateItemInput {
   name: string;
@@ -66,6 +66,7 @@ export interface JWTVerificationInput {
 export interface JWTVerificationOutput {
   isValid: boolean;
   message?: string;
+  payload?: JWTPayload;
 }
 
 export async function verifyUserJWT(
@@ -81,6 +82,7 @@ export async function verifyUserJWT(
     }
     return {
       isValid: true,
+      payload: jwtPayload,
     };
   } catch (error) {
     return {
