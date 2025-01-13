@@ -2,12 +2,19 @@ import * as anchor from '@coral-xyz/anchor';
 import { Program } from '@coral-xyz/anchor';
 import {
   PublicKey,
+  Signer,
   SystemProgram,
   TransactionInstruction,
 } from '@solana/web3.js';
 import { log } from '@temporalio/activity';
 import { SuperpullProgram } from '../types/superpull_program';
 import IDL from '../idl/superpull_program.json';
+import { fetchTreeConfigFromSeeds } from '@metaplex-foundation/mpl-bubblegum';
+import {
+  fromWeb3JsPublicKey,
+  toWeb3JsPublicKey,
+} from '@metaplex-foundation/umi-web3js-adapters';
+import { Umi } from '@metaplex-foundation/umi';
 
 interface InitializeAuctionAccounts {
   auction: PublicKey;
@@ -142,6 +149,8 @@ export class AnchorClient {
     auction: PublicKey,
     bidder: PublicKey,
     amount: number,
+    umi: Umi,
+    payer: Signer,
     returnInstruction = false,
   ): Promise<{ instruction?: TransactionInstruction; signature?: string }> {
     log.info('Placing bid through Anchor program', {
@@ -158,23 +167,17 @@ export class AnchorClient {
     const auctionState = await this.program.account.auctionState.fetch(auction);
 
     // Get tree config PDA
-    const [treeConfig] = PublicKey.findProgramAddressSync(
-      [Buffer.from('TreeConfig'), auctionState.merkleTree.toBuffer()],
-      new PublicKey('BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY'),
-    );
-
-    // Get tree creator from the tree config
-    const treeConfigAccount =
-      await this.program.provider.connection.getAccountInfo(treeConfig);
-    const treeCreator = new PublicKey(treeConfigAccount!.data.slice(8, 40));
+    const treeConfig = await fetchTreeConfigFromSeeds(umi, {
+      merkleTree: fromWeb3JsPublicKey(auctionState.merkleTree),
+    });
 
     const accounts: PlaceBidAccounts = {
       auction,
       bid: bidAddress,
       bidder,
       merkleTree: auctionState.merkleTree,
-      treeConfig,
-      treeCreator,
+      treeConfig: toWeb3JsPublicKey(treeConfig.publicKey),
+      treeCreator: payer.publicKey,
       collectionMint: auctionState.collectionMint,
       tokenMint: auctionState.tokenMint,
       bidderTokenAccount: await this.findAssociatedTokenAccount(

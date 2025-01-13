@@ -6,9 +6,6 @@ import type {
   createAuctionCollection,
   initializeAuction,
   verifyUserJWT,
-  PlaceBidInput,
-  PlaceBidOutput,
-  placeBid,
 } from './activities';
 import { WorkflowEntry } from '../registry';
 
@@ -20,7 +17,6 @@ const {
   createAuctionCollection: typeof createAuctionCollection;
   initializeAuction: typeof initializeAuction;
   verifyUserJWT: typeof verifyUserJWT;
-  placeBid: typeof placeBid;
 }>({
   startToCloseTimeout: '1 minute',
 });
@@ -29,13 +25,6 @@ export const status = defineQuery<string>('status');
 
 export interface CreateAuctionWorkflow
   extends WorkflowEntry<CreateAuctionInput, CreateAuctionOutput> {
-  queries: {
-    status: typeof status;
-  };
-}
-
-export interface PlaceBidWorkflow
-  extends WorkflowEntry<PlaceBidInput, PlaceBidOutput> {
   queries: {
     status: typeof status;
   };

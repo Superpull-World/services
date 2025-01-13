@@ -13,19 +13,19 @@ import { authWorkflow, AuthState } from './auth/workflows';
 import {
   getAuctionsWorkflow,
   getAuctionDetailsWorkflow,
-} from './auctions/workflows';
+} from './auctions/workflows/details';
 import type {
   GetAuctionsInput,
   GetAuctionsOutput,
   GetAuctionDetailsInput,
   GetAuctionDetailsOutput,
-} from './auctions/activities';
-import { placeBidWorkflow } from './auctions/place-bid-workflow';
+} from './auctions';
+import { placeBidWorkflow } from './auctions/workflows/place-bid';
 import type {
   PlaceBidInput,
   PlaceBidOutput,
   SubmitSignedBidOutput,
-} from './auctions/place-bid-activities';
+} from './auctions';
 
 export type QueryResult =
   | string

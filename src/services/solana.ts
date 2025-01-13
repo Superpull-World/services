@@ -7,9 +7,15 @@ import {
   SystemProgram,
   NONCE_ACCOUNT_LENGTH,
   TransactionInstruction,
+  Signer,
 } from '@solana/web3.js';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { createTree, mplBubblegum } from '@metaplex-foundation/mpl-bubblegum';
+import {
+  createTree,
+  fetchTreeConfigFromSeeds,
+  mplBubblegum,
+  TreeConfig,
+} from '@metaplex-foundation/mpl-bubblegum';
 import {
   createNft,
   mplTokenMetadata,
@@ -35,7 +41,6 @@ import bs58 from 'bs58';
 
 import { AnchorClient } from './anchor-client';
 import { SuperpullProgram } from '../types/superpull_program';
-import { BN } from '@coral-xyz/anchor';
 
 // Constants
 const MAX_DEPTH = 14;
@@ -92,6 +97,12 @@ export class SolanaService {
 
     // Initialize collection on service startup
     this.initializeCollectionOnStartup();
+  }
+
+  public async getTreeConfig(merkleTree: PublicKey): Promise<TreeConfig> {
+    return fetchTreeConfigFromSeeds(this.umi, {
+      merkleTree: fromWeb3JsPublicKey(merkleTree),
+    });
   }
 
   private async initializeCollectionOnStartup(): Promise<void> {
@@ -301,27 +312,6 @@ export class SolanaService {
     }
   }
 
-  public async placeBid(
-    auctionAddress: PublicKey,
-    bidderAddress: string,
-    bidAmount: number,
-  ): Promise<{ txId: string | undefined }> {
-    try {
-      const result = await this.anchorClient.placeBid(
-        auctionAddress,
-        new PublicKey(bidderAddress),
-        bidAmount,
-      );
-
-      return {
-        txId: result.signature,
-      };
-    } catch (error) {
-      log.error('Error placing bid:', error as Error);
-      throw error;
-    }
-  }
-
   public async getAuctions(
     filters: {
       authority?: string;
@@ -499,7 +489,10 @@ export class SolanaService {
 
   async createDurableNonceTransaction(
     authority: PublicKey,
-    getInstruction: () => Promise<TransactionInstruction>,
+    getInstruction: (
+      umi: Umi,
+      payer: Signer,
+    ) => Promise<TransactionInstruction>,
   ): Promise<{ transaction: Transaction; lastValidBlockHeight: number }> {
     // Create a new nonce account
     const nonceAccount = Keypair.generate();
@@ -509,6 +502,10 @@ export class SolanaService {
       );
 
     // Create and initialize nonce account
+    log.info('Creating nonce account', {
+      nonceAccount: nonceAccount.publicKey.toString(),
+      minimumAmount,
+    });
     const createNonceAccountIx = SystemProgram.createAccount({
       fromPubkey: this.payer.publicKey,
       newAccountPubkey: nonceAccount.publicKey,
@@ -517,6 +514,10 @@ export class SolanaService {
       programId: SystemProgram.programId,
     });
 
+    log.info('Initializing nonce account', {
+      nonceAccount: nonceAccount.publicKey.toString(),
+      authorizedPubkey: authority.toString(),
+    });
     const initializeNonceIx = SystemProgram.nonceInitialize({
       noncePubkey: nonceAccount.publicKey,
       authorizedPubkey: authority,
@@ -527,13 +528,20 @@ export class SolanaService {
     setupTx.add(createNonceAccountIx, initializeNonceIx);
     setupTx.feePayer = this.payer.publicKey;
 
-    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
+    const { blockhash, lastValidBlockHeight } =
+      await this.connection.getLatestBlockhash();
     setupTx.recentBlockhash = blockhash;
+    setupTx.lastValidBlockHeight = lastValidBlockHeight;
     setupTx.sign(this.payer, nonceAccount);
-    
-    await this.sendTransaction(setupTx);
+
+    log.info('Sending setup transaction', {
+      txId: await this.sendTransaction(setupTx),
+    });
 
     // Get the nonce account data
+    log.info('Getting nonce account data', {
+      nonceAccount: nonceAccount.publicKey.toString(),
+    });
     const nonceAccountData = await this.connection.getAccountInfo(
       nonceAccount.publicKey,
     );
@@ -548,16 +556,18 @@ export class SolanaService {
     });
 
     // Get the instruction that uses the nonce
-    const instruction = await getInstruction();
+    const instruction = await getInstruction(this.umi, this.payer);
 
     // Create the transaction
     const transaction = new Transaction();
-    transaction.add(advanceNonceIx);  // Must be first
+    transaction.add(advanceNonceIx);
     transaction.add(instruction);
     transaction.feePayer = this.payer.publicKey;
 
     // Use the nonce as the blockhash
-    const nonceAccount2 = await this.connection.getNonce(nonceAccount.publicKey);
+    const nonceAccount2 = await this.connection.getNonce(
+      nonceAccount.publicKey,
+    );
     if (!nonceAccount2?.nonce) {
       throw new Error('Failed to get nonce value');
     }
@@ -603,6 +613,11 @@ export class SolanaService {
     lastValidBlockHeight?: number;
   }> {
     try {
+      log.info('Creating bid transaction', {
+        auctionAddress: input.auctionAddress,
+        bidderAddress: input.bidderAddress,
+        bidAmount: input.bidAmount,
+      });
       // Get the auction details
       const auction = await this.getAuctionDetails(input.auctionAddress);
       if (!auction) {
@@ -613,29 +628,38 @@ export class SolanaService {
       }
 
       // Create a durable nonce transaction
+      log.info('Creating durable nonce transaction');
       const { transaction, lastValidBlockHeight } =
         await this.createDurableNonceTransaction(
           new PublicKey(input.bidderAddress),
-          async () => {
+          async (umi, payer) => {
             const { instruction } = await this.anchorClient.placeBid(
               new PublicKey(input.auctionAddress),
               new PublicKey(input.bidderAddress),
               input.bidAmount,
+              umi,
+              payer,
               true,
             );
             if (!instruction) {
               throw new Error('Failed to get bid instruction');
             }
+            log.info('Got bid instruction', {
+              instruction: instruction.toString(),
+            });
             return instruction;
           },
         );
 
       // Serialize and encode the transaction
+      log.info('Serializing transaction');
       const serializedTransaction = transaction.serialize({
         requireAllSignatures: false,
         verifySignatures: false,
       });
-      const encodedTransaction = Buffer.from(serializedTransaction).toString('base64');
+      const encodedTransaction = Buffer.from(serializedTransaction).toString(
+        'base64',
+      );
 
       return {
         success: true,

@@ -6,8 +6,8 @@ import type {
   GetAuctionDetailsOutput,
   getAuctions,
   getAuctionDetails,
-} from './activities';
-import { WorkflowEntry } from '../registry';
+} from '../activities';
+import { WorkflowEntry } from '../../registry';
 
 const {
   getAuctions: getAuctionsActivity,

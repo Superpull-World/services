@@ -1,5 +1,5 @@
 import { log } from '@temporalio/activity';
-import { SolanaService } from '../../services/solana';
+import { SolanaService } from '../../../services/solana';
 
 export interface PlaceBidInput {
   auctionAddress: string;

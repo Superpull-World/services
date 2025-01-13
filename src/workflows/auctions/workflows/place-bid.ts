@@ -7,13 +7,11 @@ import {
 } from '@temporalio/workflow';
 import type {
   PlaceBidInput,
-  PlaceBidOutput,
-  SubmitSignedBidInput,
   SubmitSignedBidOutput,
   createBidTransaction,
   submitSignedBid,
-} from './place-bid-activities';
-import { WorkflowEntry } from '../registry';
+} from '../activities';
+import { WorkflowEntry } from '../../registry';
 
 const {
   createBidTransaction: createBidTransactionActivity,
