@@ -1,5 +1,5 @@
 {
-  "address": "EDX7DLx7YwQFFMC9peZh5nDqiB4bKVpa2SpvSfwz4XUG",
+  "address": "6A6WedM2c3nne1oGVk9kpNjZHHqNGAf7P9B9aWHV4Hba",
   "metadata": {
     "name": "superpull_program",
     "version": "0.1.0",
@@ -24,21 +24,6 @@
           "name": "auction"
         }
       ],
-      "args": []
-    },
-    {
-      "name": "initialize",
-      "discriminator": [
-        175,
-        175,
-        109,
-        31,
-        13,
-        152,
-        155,
-        237
-      ],
-      "accounts": [],
       "args": []
     },
     {
@@ -73,28 +58,44 @@
               },
               {
                 "kind": "account",
-                "path": "merkle_tree"
+                "path": "authority"
               },
               {
                 "kind": "account",
-                "path": "authority"
+                "path": "collection_mint"
               }
             ]
           }
         },
         {
-          "name": "merkle_tree",
+          "name": "merkle_tree"
+        },
+        {
+          "name": "collection_mint",
+          "writable": true
+        },
+        {
+          "name": "token_mint",
           "docs": [
-            "The merkle tree that contains the compressed NFT"
+            "The mint of the token that will be accepted for payments"
           ]
         },
         {
           "name": "authority",
           "docs": [
-            "The authority who can manage the auction"
+            "The authority who will manage the auction (doesn't need to be signer)"
+          ]
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "The account that will pay for the initialization"
           ],
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "bubblegum_program"
         },
         {
           "name": "system_program",
@@ -117,6 +118,10 @@
         {
           "name": "minimum_items",
           "type": "u64"
+        },
+        {
+          "name": "deadline",
+          "type": "i64"
         }
       ]
     },
@@ -138,13 +143,127 @@
           "writable": true
         },
         {
+          "name": "bid",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  105,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              },
+              {
+                "kind": "account",
+                "path": "bidder"
+              }
+            ]
+          }
+        },
+        {
           "name": "bidder",
           "writable": true,
           "signer": true
         },
         {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "bidder_token_account",
+          "docs": [
+            "The bidder's token account to transfer from"
+          ],
+          "writable": true
+        },
+        {
+          "name": "auction_token_account",
+          "docs": [
+            "The auction's token account to receive tokens"
+          ],
+          "writable": true
+        },
+        {
+          "name": "collection_mint",
+          "writable": true
+        },
+        {
+          "name": "collection_metadata",
+          "writable": true
+        },
+        {
+          "name": "collection_edition",
+          "writable": true
+        },
+        {
+          "name": "collection_authority_record_pda"
+        },
+        {
+          "name": "merkle_tree",
+          "writable": true
+        },
+        {
+          "name": "tree_config",
+          "writable": true
+        },
+        {
+          "name": "tree_creator"
+        },
+        {
+          "name": "bubblegum_signer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  108,
+                  108,
+                  101,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  99,
+                  112,
+                  105
+                ]
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "bubblegum_program"
+            }
+          }
+        },
+        {
+          "name": "token_metadata_program"
+        },
+        {
+          "name": "compression_program"
+        },
+        {
+          "name": "log_wrapper"
+        },
+        {
+          "name": "bubblegum_program"
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program"
         }
       ],
       "args": [
@@ -153,6 +272,140 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "refund",
+      "discriminator": [
+        2,
+        96,
+        183,
+        251,
+        63,
+        208,
+        46,
+        46
+      ],
+      "accounts": [
+        {
+          "name": "auction",
+          "writable": true,
+          "relations": [
+            "bid"
+          ]
+        },
+        {
+          "name": "bid",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  105,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction"
+              },
+              {
+                "kind": "account",
+                "path": "bidder"
+              }
+            ]
+          }
+        },
+        {
+          "name": "bidder",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "bid"
+          ]
+        },
+        {
+          "name": "bidder_token_account",
+          "docs": [
+            "The bidder's token account to receive refund"
+          ],
+          "writable": true
+        },
+        {
+          "name": "auction_token_account",
+          "docs": [
+            "The auction's token account to refund from"
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "withdraw",
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "auction",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "The authority who can authorize the withdrawal and receive the funds"
+          ],
+          "writable": true,
+          "relations": [
+            "auction"
+          ]
+        },
+        {
+          "name": "authority_token_account",
+          "docs": [
+            "The authority's token account to receive the withdrawn tokens"
+          ],
+          "writable": true
+        },
+        {
+          "name": "auction_token_account",
+          "docs": [
+            "The auction's token account to withdraw from"
+          ],
+          "writable": true
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "The account that will pay for the transaction"
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
@@ -167,6 +420,19 @@
         64,
         250,
         126
+      ]
+    },
+    {
+      "name": "BidState",
+      "discriminator": [
+        155,
+        197,
+        5,
+        97,
+        189,
+        60,
+        8,
+        183
       ]
     }
   ],
@@ -185,6 +451,19 @@
       ]
     },
     {
+      "name": "AuctionInitialized",
+      "discriminator": [
+        18,
+        7,
+        64,
+        239,
+        134,
+        184,
+        173,
+        108
+      ]
+    },
+    {
       "name": "BidPlaced",
       "discriminator": [
         135,
@@ -195,6 +474,32 @@
         69,
         108,
         61
+      ]
+    },
+    {
+      "name": "BidRefunded",
+      "discriminator": [
+        197,
+        100,
+        31,
+        186,
+        67,
+        28,
+        46,
+        103
+      ]
+    },
+    {
+      "name": "FundsWithdrawn",
+      "discriminator": [
+        56,
+        130,
+        230,
+        154,
+        35,
+        92,
+        11,
+        118
       ]
     },
     {
@@ -214,18 +519,133 @@
   "errors": [
     {
       "code": 6000,
+      "name": "MathOverflow",
+      "msg": "Math operation overflowed"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidBasePrice",
+      "msg": "Base price must be greater than zero"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidPriceIncrement",
+      "msg": "Price increment must be greater than zero"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidMaxSupply",
+      "msg": "Maximum supply must be greater than zero"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidMinimumItems",
+      "msg": "Minimum items must be greater than zero and less than max supply"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidMerkleTree",
+      "msg": "Invalid merkle tree configuration"
+    },
+    {
+      "code": 6006,
       "name": "InsufficientBidAmount",
       "msg": "Bid amount is less than current price"
     },
     {
-      "code": 6001,
+      "code": 6007,
       "name": "MaxSupplyReached",
       "msg": "Maximum supply reached"
     },
     {
-      "code": 6002,
-      "name": "MathOverflow",
-      "msg": "Math overflow"
+      "code": 6008,
+      "name": "InvalidBidAmount",
+      "msg": "Invalid bid amount provided"
+    },
+    {
+      "code": 6009,
+      "name": "InvalidBidder",
+      "msg": "Bidder cannot be the zero address"
+    },
+    {
+      "code": 6010,
+      "name": "UnauthorizedWithdraw",
+      "msg": "Unauthorized withdrawal attempt"
+    },
+    {
+      "code": 6011,
+      "name": "NotGraduated",
+      "msg": "Auction must be graduated to withdraw funds"
+    },
+    {
+      "code": 6012,
+      "name": "NoFundsToWithdraw",
+      "msg": "No funds available to withdraw"
+    },
+    {
+      "code": 6013,
+      "name": "InsufficientRentBalance",
+      "msg": "Cannot withdraw below rent-exempt balance"
+    },
+    {
+      "code": 6014,
+      "name": "ExcessiveWithdrawalAmount",
+      "msg": "Withdrawal amount exceeds available balance"
+    },
+    {
+      "code": 6015,
+      "name": "AlreadyGraduated",
+      "msg": "Auction has already graduated"
+    },
+    {
+      "code": 6016,
+      "name": "MinimumItemsNotReached",
+      "msg": "Auction has not reached minimum items"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidAuctionState",
+      "msg": "Invalid auction state"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidAuthority",
+      "msg": "Invalid authority provided"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidAccountOwner",
+      "msg": "Invalid account owner"
+    },
+    {
+      "code": 6020,
+      "name": "NotRentExempt",
+      "msg": "Account is not rent exempt"
+    },
+    {
+      "code": 6021,
+      "name": "InvalidDeadline",
+      "msg": "Invalid deadline"
+    },
+    {
+      "code": 6022,
+      "name": "AuctionExpired",
+      "msg": "Auction expired"
+    },
+    {
+      "code": 6023,
+      "name": "InvalidRefundAttempt",
+      "msg": "Cannot refund when auction is graduated or deadline not reached"
+    },
+    {
+      "code": 6024,
+      "name": "NoFundsToRefund",
+      "msg": "No bid amount to refund"
+    },
+    {
+      "code": 6025,
+      "name": "NftBurnError",
+      "msg": "Failed to burn NFT during refund"
     }
   ],
   "types": [
@@ -250,6 +670,54 @@
       }
     },
     {
+      "name": "AuctionInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "merkle_tree",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "collection_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_price",
+            "type": "u64"
+          },
+          {
+            "name": "price_increment",
+            "type": "u64"
+          },
+          {
+            "name": "max_supply",
+            "type": "u64"
+          },
+          {
+            "name": "minimum_items",
+            "type": "u64"
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "AuctionState",
       "type": {
         "kind": "struct",
@@ -260,6 +728,14 @@
           },
           {
             "name": "merkle_tree",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "collection_mint",
             "type": "pubkey"
           },
           {
@@ -287,8 +763,16 @@
             "type": "u64"
           },
           {
+            "name": "deadline",
+            "type": "i64"
+          },
+          {
             "name": "is_graduated",
             "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -312,6 +796,70 @@
           },
           {
             "name": "new_supply",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BidRefunded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "bidder",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BidState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "bidder",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "FundsWithdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "auction",
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
             "type": "u64"
           }
         ]

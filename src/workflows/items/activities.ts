@@ -1,14 +1,10 @@
 import { PublicKey } from '@solana/web3.js';
 import { log } from '@temporalio/activity';
 
-import {
-  SolanaService,
-  NFTMetadata,
-  BondingCurveParams,
-} from '../../services/solana';
+import { SolanaService } from '../../services/solana';
 import { JWTPayload, verifyJWT } from '../../services/jwt';
 
-export interface CreateItemInput {
+export interface CreateAuctionInput {
   name: string;
   description: string;
   imageUrl: string;
@@ -17,31 +13,44 @@ export interface CreateItemInput {
   maxSupply: number;
   minimumItems: number;
   jwt: string;
+  deadline: number; // Unix timestamp in seconds
 }
 
-export interface NFTCreationOutput {
-  tokenId: string;
+export interface AuctionCollectionOutput {
+  collectionMint: string;
+  transactionHash: string;
+  status: 'success' | 'failed';
+  message: string;
+}
+
+export interface AuctionInitOutput {
+  auctionAddress: string;
   transactionHash: string;
   status: 'success' | 'failed';
   message: string;
   merkleTree: string;
 }
 
-export interface AuctionListingOutput {
-  auctionAddress: string;
-  transactionHash: string;
-  status: 'success' | 'failed';
-  message: string;
-}
-
-export interface CreateItemOutput extends NFTCreationOutput {
+export interface CreateAuctionOutput {
+  collectionMint: string;
+  collectionTransactionHash: string;
   auctionAddress: string;
   auctionTransactionHash: string;
-}
-
-export interface CollectionInitOutput {
+  merkleTree: string;
+  tokenMint: string;
   status: 'success' | 'failed';
   message: string;
+}
+
+export interface JWTVerificationInput {
+  jwt: string;
+  walletAddress: string;
+}
+
+export interface JWTVerificationOutput {
+  isValid: boolean;
+  message?: string;
+  payload?: JWTPayload;
 }
 
 export interface PlaceBidInput {
@@ -56,17 +65,6 @@ export interface PlaceBidOutput {
   status: 'success' | 'failed';
   message: string;
   bidAmount: number;
-}
-
-export interface JWTVerificationInput {
-  jwt: string;
-  walletAddress: string;
-}
-
-export interface JWTVerificationOutput {
-  isValid: boolean;
-  message?: string;
-  payload?: JWTPayload;
 }
 
 export async function verifyUserJWT(
@@ -93,122 +91,110 @@ export async function verifyUserJWT(
   }
 }
 
-export async function initializeCollection(): Promise<CollectionInitOutput> {
+export async function createAuctionCollection(
+  input: CreateAuctionInput,
+): Promise<AuctionCollectionOutput> {
   try {
-    log.info('Initializing collection');
-    const solanaService = new SolanaService();
-    await solanaService.initializeCollection();
-
-    return {
-      status: 'success',
-      message: 'Collection initialized successfully',
+    const logData = {
+      input: {
+        name: input.name,
+        ownerAddress: input.ownerAddress,
+      },
     };
-  } catch (error) {
-    log.error('Error in initializeCollection activity:', { error });
-    return {
-      status: 'failed',
-      message:
-        error instanceof Error
-          ? error.message
-          : 'Collection initialization failed',
-    };
-  }
-}
-
-export async function createCompressedNFT(
-  input: CreateItemInput,
-): Promise<NFTCreationOutput> {
-  try {
-    log.info('Initializing Solana service', { input });
+    log.info('Creating auction collection', logData);
     const solanaService = new SolanaService();
 
-    const metadata: NFTMetadata = {
-      name: input.name,
-      symbol: 'SPULL',
-      description: input.description,
-      image: input.imageUrl,
-      attributes: [
-        {
-          trait_type: 'Price',
-          value: input.price,
-        },
-      ],
-    };
-
-    log.info('Creating compressed NFT', { metadata });
-    const result = await solanaService.createCompressedNFT(
-      metadata,
-      input.ownerAddress,
+    const result = await solanaService.createAuctionCollection(
+      `${input.name} Collection`,
+      `Collection for ${input.name} auction`,
+      new PublicKey(input.ownerAddress),
     );
 
     return {
-      tokenId: result.mint.toBase58(),
+      collectionMint: result.collectionMint.toString(),
       transactionHash: result.txId,
       status: 'success',
-      message: `NFT created for ${input.name}`,
-      merkleTree: result.merkleTree.toBase58(),
+      message: 'Auction collection created successfully',
     };
   } catch (error) {
-    log.error('Error in createCompressedNFT activity:', { error });
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
+    log.error('Error creating auction collection:', { error: errorMessage });
     return {
-      tokenId: '',
+      collectionMint: '',
       transactionHash: '',
       status: 'failed',
-      message:
-        error instanceof Error ? error.message : 'Unknown error occurred',
-      merkleTree: '',
+      message: errorMessage,
     };
   }
 }
 
-export async function listNFTForAuction(
-  input: CreateItemInput,
-  nftOutput: NFTCreationOutput,
-): Promise<AuctionListingOutput> {
+export async function initializeAuction(
+  input: CreateAuctionInput,
+  collectionMint: string,
+): Promise<AuctionInitOutput> {
   try {
-    log.info('Listing NFT for auction', { input, nftOutput });
+    const logData = {
+      input: {
+        name: input.name,
+        ownerAddress: input.ownerAddress,
+      },
+    };
+    log.info('Initializing auction', logData);
     const solanaService = new SolanaService();
 
-    const LAMPORTS_PER_SOL = 1_000_000_000; // 1 SOL = 1 billion lamports
-    const bondingCurve: BondingCurveParams = {
-      initialPrice: input.price * LAMPORTS_PER_SOL,
-      slope: Math.floor(input.price * 0.1 * LAMPORTS_PER_SOL), // 10% price increase per token
-      minimumPurchase: 1,
-      maxSupply: input.maxSupply,
-      minimumItems: input.minimumItems,
-    };
+    // Create merkle tree for the auction
+    const merkleTree = await solanaService.createMerkleTree();
 
+    // Initialize the auction with the merkle tree
     const result = await solanaService.initializeAuction(
-      new PublicKey(nftOutput.merkleTree),
-      bondingCurve,
+      merkleTree,
+      new PublicKey(input.ownerAddress),
+      new PublicKey(collectionMint),
+      input.price * 1e9, // Convert to lamports
+      0.1 * 1e9, // Fixed price increment of 0.1 SOL
+      input.maxSupply,
+      input.minimumItems,
+      input.deadline,
     );
 
     return {
       auctionAddress: result.auctionAddress.toString(),
       transactionHash: result.txId,
       status: 'success',
-      message: 'NFT listed for auction successfully',
+      message: 'Auction initialized successfully',
+      merkleTree: merkleTree.toString(),
     };
   } catch (error) {
-    log.error('Failed to list NFT for auction', { error });
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
+    log.error('Error initializing auction:', { error: errorMessage });
     return {
       auctionAddress: '',
       transactionHash: '',
       status: 'failed',
-      message: `Failed to list NFT for auction: ${error}`,
+      message: errorMessage,
+      merkleTree: '',
     };
   }
 }
 
 export async function placeBid(input: PlaceBidInput): Promise<PlaceBidOutput> {
   try {
-    log.info('Placing bid on auction', { input });
+    const logData = {
+      input: {
+        auctionAddress: input.auctionAddress,
+        bidderAddress: input.bidderAddress,
+        bidAmount: input.bidAmount,
+      },
+    };
+    log.info('Placing bid on auction', logData);
     const solanaService = new SolanaService();
 
     const result = await solanaService.placeBid(
       new PublicKey(input.auctionAddress),
       input.bidderAddress,
-      input.bidAmount,
+      input.bidAmount * 1e9, // Convert to lamports
     );
 
     return {
@@ -218,12 +204,13 @@ export async function placeBid(input: PlaceBidInput): Promise<PlaceBidOutput> {
       bidAmount: input.bidAmount,
     };
   } catch (error) {
-    log.error('Error in placeBid activity:', { error });
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
+    log.error('Error in placeBid activity:', { error: errorMessage });
     return {
       transactionHash: '',
       status: 'failed',
-      message:
-        error instanceof Error ? error.message : 'Unknown error occurred',
+      message: errorMessage,
       bidAmount: input.bidAmount,
     };
   }

@@ -6,13 +6,13 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-superpull_program = "EDX7DLx7YwQFFMC9peZh5nDqiB4bKVpa2SpvSfwz4XUG"
+superpull_program = "6A6WedM2c3nne1oGVk9kpNjZHHqNGAf7P9B9aWHV4Hba"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "https://devnet.helius-rpc.com/?api-key=637079fc-2bd4-48d5-9110-ab8c012da869"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

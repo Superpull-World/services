@@ -1,47 +1,51 @@
 import { proxyActivities, defineQuery, setHandler } from '@temporalio/workflow';
 import { log } from '@temporalio/workflow';
 import type {
-  CreateItemInput,
-  CreateItemOutput,
-  createCompressedNFT,
-  listNFTForAuction,
-  initializeCollection,
+  CreateAuctionInput,
+  CreateAuctionOutput,
+  createAuctionCollection,
+  initializeAuction,
+  verifyUserJWT,
   PlaceBidInput,
   PlaceBidOutput,
   placeBid,
-  verifyUserJWT,
 } from './activities';
 import { WorkflowEntry } from '../registry';
 
 const {
-  createCompressedNFT: createNFT,
-  listNFTForAuction: listAuction,
-  initializeCollection: initCollection,
-  placeBid: placeBidActivity,
+  createAuctionCollection: createCollection,
+  initializeAuction: initAuction,
   verifyUserJWT: verifyJWT,
+  placeBid: placeBidActivity,
 } = proxyActivities<{
-  createCompressedNFT: typeof createCompressedNFT;
-  listNFTForAuction: typeof listNFTForAuction;
-  initializeCollection: typeof initializeCollection;
-  placeBid: typeof placeBid;
+  createAuctionCollection: typeof createAuctionCollection;
+  initializeAuction: typeof initializeAuction;
   verifyUserJWT: typeof verifyUserJWT;
+  placeBid: typeof placeBid;
 }>({
   startToCloseTimeout: '1 minute',
 });
 
 export const status = defineQuery<string>('status');
 
-export interface CreateItemWorkflow
-  extends WorkflowEntry<CreateItemInput, CreateItemOutput> {
+export interface CreateAuctionWorkflow
+  extends WorkflowEntry<CreateAuctionInput, CreateAuctionOutput> {
   queries: {
     status: typeof status;
   };
 }
 
-export const createItemWorkflowFunction = async (
-  input: CreateItemInput,
-): Promise<CreateItemOutput> => {
-  log.info('Starting item workflow', { input });
+export interface PlaceBidWorkflow
+  extends WorkflowEntry<PlaceBidInput, PlaceBidOutput> {
+  queries: {
+    status: typeof status;
+  };
+}
+
+export const createAuctionWorkflowFunction = async (
+  input: CreateAuctionInput,
+): Promise<CreateAuctionOutput> => {
+  log.info('Starting auction workflow', { input });
   setHandler(status, () => 'verifying-jwt');
 
   // First verify JWT
@@ -54,85 +58,77 @@ export const createItemWorkflowFunction = async (
     log.error('JWT verification failed', { jwtVerification });
     setHandler(status, () => 'jwt-verification-failed');
     return {
-      tokenId: '',
-      transactionHash: '',
+      collectionMint: '',
+      collectionTransactionHash: '',
+      auctionAddress: '',
+      auctionTransactionHash: '',
+      merkleTree: '',
+      tokenMint: '',
       status: 'failed',
       message: jwtVerification.message || 'JWT verification failed',
-      merkleTree: '',
-      auctionAddress: '',
-      auctionTransactionHash: '',
     };
   }
 
-  setHandler(status, () => 'initializing-collection');
-
-  // First initialize the collection
-  const collectionResult = await initCollection();
+  // Create the auction collection
+  setHandler(status, () => 'creating-auction-collection');
+  const collectionResult = await createCollection(input);
   if (collectionResult.status === 'failed') {
-    log.error('Collection initialization failed', { collectionResult });
-    setHandler(status, () => 'collection-init-failed');
+    log.error('Auction collection creation failed', { collectionResult });
+    setHandler(status, () => 'collection-creation-failed');
     return {
-      tokenId: '',
-      transactionHash: '',
-      status: 'failed',
-      message: `Collection initialization failed: ${collectionResult.message}`,
+      collectionMint: '',
+      collectionTransactionHash: collectionResult.transactionHash,
+      auctionAddress: '',
+      auctionTransactionHash: '',
       merkleTree: '',
-      auctionAddress: '',
-      auctionTransactionHash: '',
+      tokenMint: '',
+      status: 'failed',
+      message: collectionResult.message,
     };
   }
 
-  // Create the NFT
-  setHandler(status, () => 'creating-compressed-nft');
-  const nftResult = await createNFT(input);
-  if (nftResult.status === 'failed') {
-    log.error('NFT creation failed', { nftResult });
-    setHandler(status, () => 'nft-creation-failed');
-    return {
-      ...nftResult,
-      auctionAddress: '',
-      auctionTransactionHash: '',
-    };
-  }
-
-  // List the NFT for auction
-  log.info('Listing NFT for auction', { input, nftResult });
-  setHandler(status, () => 'listing-for-auction');
-  const auctionResult = await listAuction(input, nftResult);
-
+  // Initialize the auction
+  setHandler(status, () => 'initializing-auction');
+  const auctionResult = await initAuction(
+    input,
+    collectionResult.collectionMint,
+  );
   if (auctionResult.status === 'failed') {
-    log.error('Auction listing failed', { auctionResult });
-    setHandler(status, () => 'auction-listing-failed');
+    log.error('Auction initialization failed', { auctionResult });
+    setHandler(status, () => 'auction-initialization-failed');
     return {
-      ...nftResult,
-      auctionAddress: auctionResult.auctionAddress,
-      auctionTransactionHash: auctionResult.transactionHash,
+      collectionMint: collectionResult.collectionMint,
+      collectionTransactionHash: collectionResult.transactionHash,
+      auctionAddress: '',
+      auctionTransactionHash: '',
+      merkleTree: '',
+      tokenMint: '',
+      status: 'failed',
+      message: auctionResult.message,
     };
   }
 
   log.info('Item workflow completed successfully');
   setHandler(status, () => 'completed');
   return {
-    ...nftResult,
+    collectionMint: collectionResult.collectionMint,
+    collectionTransactionHash: collectionResult.transactionHash,
     auctionAddress: auctionResult.auctionAddress,
     auctionTransactionHash: auctionResult.transactionHash,
+    merkleTree: auctionResult.merkleTree,
+    tokenMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC token mint
+    status: 'success',
+    message: 'Auction initialized successfully',
   };
 };
 
-export const createItemWorkflow: CreateItemWorkflow = {
-  workflow: createItemWorkflowFunction,
+export const createAuctionWorkflow: CreateAuctionWorkflow = {
+  workflow: createAuctionWorkflowFunction,
   taskQueue: 'item-task-queue',
   queries: {
     status,
   },
 };
-
-export interface PlaceBidWorkflow
-  extends WorkflowEntry<PlaceBidInput, PlaceBidOutput> {
-  queries: {
-    status: typeof status;
-  };
-}
 
 export const placeBidWorkflowFunction = async (
   input: PlaceBidInput,

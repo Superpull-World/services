@@ -4,10 +4,10 @@ import {
   SampleWorkflowOutput,
   sampleWorkflow,
 } from './sample/workflows';
-import { createItemWorkflow, placeBidWorkflow } from './items/workflows';
+import { createAuctionWorkflow, placeBidWorkflow } from './items/workflows';
 import type {
-  CreateItemInput,
-  CreateItemOutput,
+  CreateAuctionInput,
+  CreateAuctionOutput,
   PlaceBidInput,
   PlaceBidOutput,
 } from './items/activities';
@@ -44,7 +44,7 @@ export interface WorkflowEntry<
 
 interface WorkflowRegistry {
   sampleWorkflow: WorkflowEntry<SampleWorkflowInput, SampleWorkflowOutput>;
-  createItem: WorkflowEntry<CreateItemInput, CreateItemOutput>;
+  createAuction: WorkflowEntry<CreateAuctionInput, CreateAuctionOutput>;
   placeBid: WorkflowEntry<PlaceBidInput, PlaceBidOutput>;
   auth: WorkflowEntry<string, void, { getState: AuthState }>;
   getAuctions: WorkflowEntry<
@@ -67,7 +67,7 @@ interface WorkflowRegistry {
 
 export const workflowRegistry: WorkflowRegistry = {
   sampleWorkflow,
-  createItem: createItemWorkflow,
+  createAuction: createAuctionWorkflow,
   placeBid: placeBidWorkflow,
   auth: authWorkflow,
   getAuctions: getAuctionsWorkflow,

@@ -1,46 +1,39 @@
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  Transaction,
-  SystemProgram,
-  sendAndConfirmTransaction,
-} from '@solana/web3.js';
-import { log } from '@temporalio/activity';
-
-import {
-  createMint,
-  getOrCreateAssociatedTokenAccount,
-  mintTo,
-} from '@solana/spl-token';
+import * as anchor from '@coral-xyz/anchor';
+import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
-import { dasApi } from '@metaplex-foundation/digital-asset-standard-api';
-import {
-  mplBubblegum,
-  mintToCollectionV1,
-  createTree,
-} from '@metaplex-foundation/mpl-bubblegum';
+import { createTree, mplBubblegum } from '@metaplex-foundation/mpl-bubblegum';
 import {
   createNft,
   mplTokenMetadata,
+  findCollectionAuthorityRecordPda,
+  approveCollectionAuthority,
 } from '@metaplex-foundation/mpl-token-metadata';
 import {
   keypairIdentity,
-  Umi,
-  publicKey,
-  transactionBuilder,
-  generateSigner,
   percentAmount,
+  generateSigner,
+  none,
+  some,
   createSignerFromKeypair,
+  Umi,
 } from '@metaplex-foundation/umi';
 import {
   fromWeb3JsKeypair,
   fromWeb3JsPublicKey,
+  toWeb3JsPublicKey,
 } from '@metaplex-foundation/umi-web3js-adapters';
-import * as anchor from '@coral-xyz/anchor';
-import { AnchorClient } from './anchor-client';
-import { AuctionDetails } from './types';
+import { log } from '@temporalio/activity';
 import bs58 from 'bs58';
+
+import { AnchorClient } from './anchor-client';
+import { SuperpullProgram } from '../types/superpull_program';
+
+// Constants
+const MAX_DEPTH = 14;
+const MAX_BUFFER_SIZE = 64;
+const COLLECTION_NAME = 'SuperPull Auctions Collection';
+const COLLECTION_SYMBOL = 'SPULL';
+const COLLECTION_URI = 'https://assets.superpull.world/collection.json';
 
 export interface NFTMetadata {
   name: string;
@@ -51,50 +44,15 @@ export interface NFTMetadata {
     trait_type: string;
     value: string | number;
   }>;
-  properties?: {
-    files?: Array<{
-      uri: string;
-      type: string;
-    }>;
-  };
-}
-
-export interface BondingCurveParams {
-  initialPrice: number;
-  slope: number;
-  minimumPurchase: number;
-  maxSupply: number;
-  minimumItems: number;
-}
-
-export interface AuctionQueryParams {
-  merkleTree?: string;
-  authority?: string;
-  isGraduated?: boolean;
-  limit?: number;
-  offset?: number;
-}
-
-export interface AuctionQueryResult {
-  auctions: Array<{
-    auctionAddress: string;
-    tokenId: string;
-    currentPrice: number;
-    highestBidder: string;
-    endTime: number;
-    status: 'active' | 'ended' | 'cancelled';
-    ownerAddress: string;
-    minimumBid: number;
-  }>;
-  total: number;
 }
 
 export class SolanaService {
   private connection: Connection;
-  private payer: Keypair;
+  public payer: Keypair;
   private umi: Umi;
   private anchorClient: AnchorClient;
   private collectionMint!: Keypair;
+
   constructor(
     endpoint: string = process.env.SOLANA_RPC_ENDPOINT ||
       'https://api.devnet.solana.com',
@@ -113,7 +71,6 @@ export class SolanaService {
     this.umi = createUmi(endpoint)
       .use(keypairIdentity(fromWeb3JsKeypair(this.payer)))
       .use(mplBubblegum())
-      .use(dasApi())
       .use(mplTokenMetadata());
 
     // Initialize Anchor client
@@ -123,9 +80,12 @@ export class SolanaService {
       { commitment: 'confirmed', skipPreflight: true },
     );
     this.anchorClient = new AnchorClient(provider);
+
+    // Initialize collection on service startup
+    this.initializeCollectionOnStartup();
   }
 
-  public async initializeCollection(): Promise<void> {
+  private async initializeCollectionOnStartup(): Promise<void> {
     try {
       log.info('Checking for collection mint', {
         collectionAddress: this.collectionMint.publicKey.toString(),
@@ -152,14 +112,14 @@ export class SolanaService {
 
         const builder = createNft(this.umi, {
           mint: collectionSigner,
-          name: 'SuperPull Collection',
-          symbol: 'SPULL',
-          uri: 'https://assets.superpull.world/collection.json',
+          name: COLLECTION_NAME,
+          symbol: COLLECTION_SYMBOL,
+          uri: COLLECTION_URI,
           sellerFeeBasisPoints: percentAmount(0),
           isCollection: true,
-          creators: null,
-          collection: null,
-          uses: null,
+          creators: none(),
+          collection: none(),
+          uses: none(),
         });
 
         await builder.sendAndConfirm(this.umi);
@@ -173,350 +133,153 @@ export class SolanaService {
         });
       }
     } catch (error) {
-      console.error('Error initializing collection:', error);
+      log.error('Error initializing collection:', error as Error);
       throw error;
     }
   }
 
-  async createNFTWithBondingCurve(
-    metadata: NFTMetadata,
-    bondingCurve: BondingCurveParams,
-    ownerAddress: string,
-  ): Promise<{ mint: PublicKey; txId: string }> {
+  public async createMerkleTree(): Promise<PublicKey> {
     try {
-      // Create the mint account
-      const mint = await createMint(
-        this.connection,
-        this.payer,
-        this.payer.publicKey,
-        this.payer.publicKey,
-        0,
-      );
-
-      // Create the token account for the owner
-      const ownerPublicKey = new PublicKey(ownerAddress);
-      const tokenAccount = await getOrCreateAssociatedTokenAccount(
-        this.connection,
-        this.payer,
-        mint,
-        ownerPublicKey,
-      );
-
-      // Mint initial token
-      await mintTo(
-        this.connection,
-        this.payer,
-        mint,
-        tokenAccount.address,
-        this.payer,
-        1,
-      );
-
-      // Create the NFT state account
-      const [nftStateAccount] = await PublicKey.findProgramAddress(
-        [Buffer.from('nft_state'), mint.toBuffer()],
-        new PublicKey(this.anchorClient.program.idl.address),
-      );
-
-      // Initialize NFT with bonding curve parameters
-      const transaction = new Transaction().add(
-        SystemProgram.createAccount({
-          fromPubkey: this.payer.publicKey,
-          newAccountPubkey: nftStateAccount,
-          lamports:
-            await this.connection.getMinimumBalanceForRentExemption(1000),
-          space: 1000,
-          programId: new PublicKey(this.anchorClient.program.idl.address),
-        }),
-        {
-          keys: [
-            { pubkey: nftStateAccount, isSigner: false, isWritable: true },
-            { pubkey: mint, isSigner: false, isWritable: false },
-            { pubkey: this.payer.publicKey, isSigner: true, isWritable: true },
-          ],
-          programId: new PublicKey(this.anchorClient.program.idl.address),
-          data: Buffer.from(
-            JSON.stringify({
-              instruction: 'initialize_nft',
-              metadata,
-              bondingCurve,
-            }),
-          ),
-        },
-      );
-
-      const txId = await sendAndConfirmTransaction(
-        this.connection,
-        transaction,
-        [this.payer],
-      );
-
-      return {
-        mint,
-        txId,
-      };
-    } catch (error) {
-      console.error('Error creating NFT with bonding curve:', error);
-      throw error;
-    }
-  }
-
-  async purchaseNFTEdition(
-    mint: PublicKey,
-    buyerAddress: string,
-    quantity: number = 1,
-  ): Promise<string> {
-    try {
-      const buyerPublicKey = new PublicKey(buyerAddress);
-
-      // Get the NFT state account
-      const [nftStateAccount] = await PublicKey.findProgramAddress(
-        [Buffer.from('nft_state'), mint.toBuffer()],
-        new PublicKey(this.anchorClient.program.idl.address),
-      );
-
-      // Create buyer's token account if it doesn't exist
-      const buyerTokenAccount = await getOrCreateAssociatedTokenAccount(
-        this.connection,
-        this.payer,
-        mint,
-        buyerPublicKey,
-      );
-
-      // Create the purchase transaction
-      const transaction = new Transaction().add({
-        keys: [
-          { pubkey: nftStateAccount, isSigner: false, isWritable: true },
-          { pubkey: mint, isSigner: false, isWritable: true },
-          {
-            pubkey: buyerTokenAccount.address,
-            isSigner: false,
-            isWritable: true,
-          },
-          { pubkey: buyerPublicKey, isSigner: true, isWritable: true },
-          { pubkey: this.payer.publicKey, isSigner: true, isWritable: true },
-        ],
-        programId: new PublicKey(this.anchorClient.program.idl.address),
-        data: Buffer.from(
-          JSON.stringify({
-            instruction: 'purchase_edition',
-            quantity,
-          }),
-        ),
-      });
-
-      const txId = await sendAndConfirmTransaction(
-        this.connection,
-        transaction,
-        [this.payer],
-      );
-
-      return txId;
-    } catch (error) {
-      console.error('Error purchasing NFT edition:', error);
-      throw error;
-    }
-  }
-
-  async getCurrentPrice(mint: PublicKey): Promise<number> {
-    try {
-      const [nftStateAccount] = await PublicKey.findProgramAddress(
-        [Buffer.from('nft_state'), mint.toBuffer()],
-        new PublicKey(this.anchorClient.program.idl.address),
-      );
-
-      const accountInfo = await this.connection.getAccountInfo(nftStateAccount);
-      if (!accountInfo) {
-        throw new Error('NFT state account not found');
-      }
-
-      const state = JSON.parse(accountInfo.data.toString());
-      return state.currentPrice;
-    } catch (error) {
-      console.error('Error getting current NFT price:', error);
-      throw error;
-    }
-  }
-
-  async createCompressedNFT(
-    metadata: NFTMetadata,
-    ownerAddress: string,
-  ): Promise<{ mint: PublicKey; txId: string; merkleTree: PublicKey }> {
-    try {
-      log.info('Starting compressed NFT creation', {
-        owner: ownerAddress,
-        metadata: metadata.name,
-      });
-
       // Generate a new signer for the tree
       const merkleTreeKeypair = generateSigner(this.umi);
-      const merkleTreeDepth = 14;
-      const merkleTreeBufferSize = 64;
 
-      log.debug('Creating Merkle tree', {
-        maxDepth: merkleTreeDepth.toString(),
-        maxBufferSize: merkleTreeBufferSize.toString(),
-      });
+      const debugLogData = {
+        maxDepth: MAX_DEPTH.toString(),
+        maxBufferSize: MAX_BUFFER_SIZE.toString(),
+      };
+      log.debug('Creating Merkle tree', debugLogData);
 
       // Create the tree with default parameters for compressed NFTs
-      const treeBuilder = createTree(this.umi, {
+      const treeBuilder = await createTree(this.umi, {
+        maxDepth: MAX_DEPTH,
+        maxBufferSize: MAX_BUFFER_SIZE,
+        public: some(true),
         merkleTree: merkleTreeKeypair,
-        maxDepth: merkleTreeDepth,
-        maxBufferSize: merkleTreeBufferSize,
-        public: true,
       });
 
       // Send and confirm the tree creation
-      await (await treeBuilder).sendAndConfirm(this.umi);
+      await treeBuilder.sendAndConfirm(this.umi);
 
-      log.info('Merkle tree created', {
+      const infoLogData = {
         treeAddress: merkleTreeKeypair.publicKey.toString(),
-        leafOwner: this.payer.publicKey.toBase58(),
-        collectionMint: this.collectionMint.publicKey.toString(),
-        payer: this.payer.publicKey.toBase58(),
-      });
-
-      // Create the NFT using the new tree
-      const nftBuilder = transactionBuilder().add(
-        mintToCollectionV1(this.umi, {
-          leafOwner: fromWeb3JsPublicKey(this.payer.publicKey),
-          merkleTree: merkleTreeKeypair.publicKey,
-          collectionMint: fromWeb3JsPublicKey(this.collectionMint.publicKey),
-          metadata: {
-            name: metadata.name,
-            symbol: metadata.symbol,
-            uri: 'https://assets.superpull.world/collection.json',
-            sellerFeeBasisPoints: 0,
-            collection: {
-              key: fromWeb3JsPublicKey(this.collectionMint.publicKey),
-              verified: true,
-            },
-            creators: [
-              {
-                address: fromWeb3JsPublicKey(this.payer.publicKey),
-                verified: true,
-                share: 100,
-              },
-            ],
-          },
-        }),
-      );
-
-      const result = await nftBuilder.send(this.umi, {
-        commitment: 'confirmed',
-        skipPreflight: true,
-      });
-      const txId = result.toString();
-      log.info('Transaction sent', { txId });
-
-      const assetId = await this.computeAssetId(
-        merkleTreeKeypair.publicKey.toString(),
-        this.payer.publicKey.toBase58(),
-      );
-
-      const response = {
-        mint: new PublicKey(assetId),
-        txId,
-        merkleTree: new PublicKey(merkleTreeKeypair.publicKey),
       };
+      log.info('Merkle tree created', infoLogData);
 
-      log.debug('Compressed NFT created successfully', {
-        assetId,
-        txId,
-        merkleTree: merkleTreeKeypair.publicKey.toString(),
-      });
-
-      return response;
+      return new PublicKey(merkleTreeKeypair.publicKey);
     } catch (error) {
-      log.error('Error creating compressed NFT', {
-        error,
-        owner: ownerAddress,
-        metadata: metadata.name,
-      });
+      log.error('Error creating Merkle tree:', error as Error);
       throw error;
     }
   }
 
-  private async computeAssetId(tree: string, owner: string): Promise<string> {
-    const maxRetries = 5;
-    const retryDelay = 2000; // 2 seconds
+  public async createAuctionCollection(
+    name: string,
+    description: string,
+    authority: PublicKey,
+  ): Promise<{ collectionMint: PublicKey; txId: string }> {
+    try {
+      log.info('Creating auction collection', {
+        name,
+        authority: authority.toString(),
+      });
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        log.info('Fetching assets by owner', {
-          owner,
-          attempt: attempt + 1,
-          maxRetries,
-        });
+      // Generate a new signer for the collection
+      const collectionSigner = generateSigner(this.umi);
 
-        const { items } = await this.umi.rpc.getAssetsByOwner({
-          owner: publicKey(owner),
-          sortBy: { sortBy: 'created', sortDirection: 'desc' },
-        });
+      // Create the collection NFT
+      const builder = createNft(this.umi, {
+        mint: collectionSigner,
+        name,
+        symbol: COLLECTION_SYMBOL,
+        uri: COLLECTION_URI,
+        sellerFeeBasisPoints: percentAmount(0),
+        isCollection: true,
+        creators: none(),
+        collection: {
+          key: fromWeb3JsPublicKey(this.collectionMint.publicKey),
+          verified: false,
+        },
+        uses: none(),
+      });
 
-        log.info('Found assets', {
-          totalAssets: items.length,
-          assets: items.map((item) => ({
-            id: item.id,
-            tree: item.compression.tree,
-            leaf_id: item.compression.leaf_id,
-          })),
-        });
+      const result = await builder.sendAndConfirm(this.umi);
+      log.info('Auction Collection mint created', {
+        collectionMint: collectionSigner.publicKey.toString(),
+      });
 
-        const treePublicKey = fromWeb3JsPublicKey(new PublicKey(tree));
-        log.info('Looking for asset in tree', {
-          searchTree: treePublicKey,
-          treeString: tree,
-        });
+      // Derive the auction PDA
+      const [auctionPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from('auction'),
+          authority.toBuffer(),
+          toWeb3JsPublicKey(collectionSigner.publicKey).toBuffer(),
+        ],
+        this.anchorClient.program.programId,
+      );
 
-        const asset = items.find(
-          (item) => item.compression.tree === treePublicKey,
-        );
+      // Set the auction PDA as the collection authority
+      const collectionAuthorityRecord = findCollectionAuthorityRecordPda(
+        this.umi,
+        {
+          mint: collectionSigner.publicKey,
+          collectionAuthority: fromWeb3JsPublicKey(auctionPda),
+        },
+      );
 
-        if (asset) {
-          log.info('Asset found', {
-            assetId: asset.id,
-            tree: asset.compression.tree,
-            leaf_id: asset.compression.leaf_id,
-          });
-          return asset.id;
-        }
+      log.info('Setting auction collection authority', {
+        collectionMint: collectionSigner.publicKey.toString(),
+        auctionPda: auctionPda.toString(),
+        collectionAuthorityRecord: collectionAuthorityRecord.toString(),
+      });
+      const setAuthorityBuilder = approveCollectionAuthority(this.umi, {
+        mint: collectionSigner.publicKey,
+        newCollectionAuthority: fromWeb3JsPublicKey(auctionPda),
+        collectionAuthorityRecord,
+      });
 
-        log.info('Asset not found in current attempt, retrying...', {
-          attempt: attempt + 1,
-          maxRetries,
-        });
+      await setAuthorityBuilder.sendAndConfirm(this.umi, {
+        send: {
+          skipPreflight: true,
+        },
+      });
 
-        if (attempt < maxRetries - 1) {
-          await new Promise((resolve) => setTimeout(resolve, retryDelay));
-        }
-      } catch (error) {
-        log.error('Error in computeAssetId attempt', {
-          attempt: attempt + 1,
-          error,
-        });
+      const logMetadata = {
+        collectionMint: collectionSigner.publicKey.toString(),
+        authority: authority.toString(),
+        txId: result.signature.toString(),
+      };
+      log.info('Auction collection created', logMetadata);
 
-        if (attempt < maxRetries - 1) {
-          await new Promise((resolve) => setTimeout(resolve, retryDelay));
-        }
-      }
+      return {
+        collectionMint: new PublicKey(collectionSigner.publicKey),
+        txId: result.signature.toString(),
+      };
+    } catch (error) {
+      log.error('Error creating auction collection:', error as Error);
+      throw error;
     }
-
-    throw new Error(`Asset not found after ${maxRetries} attempts`);
   }
 
-  async initializeAuction(
+  public async initializeAuction(
     merkleTree: PublicKey,
-    bondingCurve: BondingCurveParams,
+    authority: PublicKey,
+    collectionMint: PublicKey,
+    initialPrice: number,
+    priceIncrement: number,
+    maxSupply: number,
+    minimumItems: number,
+    deadline: number,
   ): Promise<{ auctionAddress: PublicKey; txId: string }> {
     try {
       const result = await this.anchorClient.initializeAuction(
         merkleTree,
-        this.payer.publicKey,
-        bondingCurve.initialPrice,
-        bondingCurve.slope,
-        bondingCurve.maxSupply,
-        bondingCurve.minimumItems,
+        collectionMint,
+        authority,
+        initialPrice,
+        priceIncrement,
+        maxSupply,
+        minimumItems,
+        deadline,
       );
 
       return {
@@ -524,200 +287,179 @@ export class SolanaService {
         txId: result.signature,
       };
     } catch (error) {
-      console.error('Error initializing auction:', error);
+      log.error('Error initializing auction:', error as Error);
       throw error;
     }
   }
 
-  async placeBid(
+  public async placeBid(
     auctionAddress: PublicKey,
     bidderAddress: string,
     bidAmount: number,
   ): Promise<{ txId: string }> {
-    log.info('Placing bid on auction', {
-      auctionAddress: auctionAddress.toString(),
-      bidderAddress,
-      bidAmount,
-    });
+    try {
+      const result = await this.anchorClient.placeBid(
+        auctionAddress,
+        new PublicKey(bidderAddress),
+        bidAmount,
+      );
 
-    const LAMPORTS_PER_SOL = 1_000_000_000; // 1 SOL = 1 billion lamports
-    const bidAmountLamports = Math.floor(bidAmount * LAMPORTS_PER_SOL);
-
-    const bidderPublicKey = new PublicKey(bidderAddress);
-    const signature = await this.anchorClient.placeBid(
-      auctionAddress,
-      bidderPublicKey,
-      bidAmountLamports,
-    );
-
-    return {
-      txId: signature,
-    };
+      return {
+        txId: result,
+      };
+    } catch (error) {
+      log.error('Error placing bid:', error as Error);
+      throw error;
+    }
   }
 
-  async getAuctions(
-    params: AuctionQueryParams,
-  ): Promise<{ auctions: AuctionDetails[]; total: number }> {
+  public async getAuctions(
+    filters: {
+      authority?: string;
+      isGraduated?: boolean;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Promise<{
+    auctions: Array<{
+      address: string;
+      state: anchor.IdlAccounts<SuperpullProgram>['auctionState'];
+    }>;
+    total: number;
+  }> {
     try {
-      const program = this.anchorClient.program;
+      log.info('Fetching auction accounts with filters', {
+        filters,
+      });
 
-      // Convert discriminator to base58
+      // Build memcmp filters
+      const memcmpFilters: Array<{
+        memcmp: {
+          offset: number;
+          bytes: string;
+        };
+      }> = [];
+
+      // Add discriminator filter for AuctionState
       const discriminator = Buffer.from([252, 227, 205, 147, 72, 64, 250, 126]);
-      const filters = [
-        {
-          memcmp: {
-            offset: 0,
-            bytes: bs58.encode(discriminator),
-          },
+      memcmpFilters.push({
+        memcmp: {
+          offset: 0,
+          bytes: bs58.encode(discriminator),
         },
-      ];
+      });
 
-      if (params.merkleTree) {
-        try {
-          const merkleTreePubkey = new PublicKey(params.merkleTree);
-          filters.push({
-            memcmp: {
-              offset: 8 + 32, // discriminator + authority
-              bytes: merkleTreePubkey.toBase58(),
-            },
-          });
-        } catch (e) {
-          log.error('Invalid merkle tree public key', { error: e });
-        }
-      }
-
-      if (params.authority) {
-        try {
-          const authorityPubkey = new PublicKey(params.authority);
-          filters.push({
-            memcmp: {
-              offset: 8, // discriminator
-              bytes: authorityPubkey.toBase58(),
-            },
-          });
-        } catch (e) {
-          log.error('Invalid authority public key', { error: e });
-        }
-      }
-
-      if (params.isGraduated !== undefined) {
-        filters.push({
+      // Add authority filter if provided
+      if (filters.authority) {
+        memcmpFilters.push({
           memcmp: {
-            offset: 8 + 32 + 32 + 8 + 8 + 8 + 8 + 8 + 8, // All fields before isGraduated
-            bytes: bs58.encode(Buffer.from([params.isGraduated ? 1 : 0])),
+            offset: 8, // After discriminator
+            bytes: new PublicKey(filters.authority).toBase58(),
           },
         });
       }
 
-      log.info('Fetching auction accounts with filters', {
-        filters,
-        programId: program.programId.toString(),
-        discriminator: discriminator.toString('hex'),
-        discriminatorBase58: bs58.encode(discriminator),
-      });
+      // Add isGraduated filter if provided
+      if (filters.isGraduated !== undefined) {
+        // Offset calculation based on AuctionState layout:
+        // 8 (discriminator) +
+        // 32 (authority) +
+        // 32 (merkle_tree) +
+        // 32 (token_mint) +
+        // 32 (collection_mint) +
+        // 8 (base_price) +
+        // 8 (price_increment) +
+        // 8 (current_supply) +
+        // 8 (max_supply) +
+        // 8 (total_value_locked) +
+        // 8 (minimum_items) +
+        // 8 (deadline)
+        // = 192 bytes before is_graduated
+        memcmpFilters.push({
+          memcmp: {
+            offset: 192,
+            bytes: bs58.encode(Buffer.from([filters.isGraduated ? 1 : 0])),
+          },
+        });
+      }
 
-      // First try to get all accounts for the program
-      const allAccounts = await this.connection.getProgramAccounts(
-        program.programId,
-        { filters },
+      // Fetch accounts with filters
+      const accounts = await this.connection.getProgramAccounts(
+        this.anchorClient.program.programId,
+        {
+          commitment: 'confirmed',
+          filters: memcmpFilters,
+          dataSlice: {
+            offset: 0,
+            length: 0, // We don't need the data yet, just get addresses
+          },
+        },
       );
 
-      log.info('All program accounts', {
-        count: allAccounts.length,
-        accounts: allAccounts.map((a) => ({
-          pubkey: a.pubkey.toString(),
-          dataLength: a.account.data.length,
-          discriminator: a.account.data.slice(0, 8).toString('hex'),
-        })),
-      });
-
-      const auctions = await program.account.auctionState.all(filters);
-
       log.info('Found auction accounts', {
-        count: auctions.length,
-        auctions: auctions.map((a) => ({
-          address: a.publicKey.toString(),
-          authority: a.account.authority.toString(),
-          merkleTree: a.account.merkleTree.toString(),
-        })),
+        total: accounts.length,
       });
 
+      // Apply pagination
+      const start = Math.max(0, filters.offset || 0);
+      const maxEnd = accounts.length;
+      const end = filters.limit
+        ? Math.min(start + filters.limit, maxEnd)
+        : maxEnd;
+
+      // Return empty if start is beyond bounds
+      if (start >= maxEnd) {
+        return {
+          auctions: [],
+          total: accounts.length,
+        };
+      }
+
+      // Get paginated accounts
+      const paginatedAccounts = accounts.slice(start, end);
+
+      // Fetch full account data for paginated accounts
       const auctionDetails = await Promise.all(
-        auctions
-          .slice(
-            params.offset || 0,
-            (params.offset || 0) + (params.limit || 10),
-          )
-          .map(async ({ publicKey, account }) => {
-            const currentPrice =
-              account.basePrice.toNumber() +
-              account.priceIncrement.toNumber() *
-                account.currentSupply.toNumber();
-
-            // Fetch NFT metadata from the merkle tree
-            const { items } = await this.umi.rpc.getAssetsByOwner({
-              owner: fromWeb3JsPublicKey(account.merkleTree),
-              sortBy: { sortBy: 'created', sortDirection: 'desc' },
-              limit: 1,
-            });
-
-            // Get the JSON metadata from the asset
-            let nftMetadata = {
-              name: `SuperPull NFT #${account.currentSupply.toNumber() + 1}`,
-              symbol: 'SPULL',
-              description: 'A unique SuperPull NFT with bonding curve pricing',
-              uri: 'https://assets.superpull.world/placeholder.png',
-            };
-
-            if (items.length > 0 && items[0].content.metadata?.uri) {
-              try {
-                const response = await fetch(items[0].content.metadata.uri as string);
-                if (response.ok) {
-                  const metadata = (await response.json()) as NFTMetadata;
-                  nftMetadata = {
-                    name: metadata.name || nftMetadata.name,
-                    symbol: metadata.symbol || nftMetadata.symbol,
-                    description: metadata.description || nftMetadata.description,
-                    uri: metadata.image || nftMetadata.uri,
-                  };
-                }
-              } catch (error) {
-                log.error('Failed to fetch NFT metadata', {
-                  error,
-                  uri: items[0].content.metadata.uri,
-                });
-              }
+        paginatedAccounts.map(async (account) => {
+          try {
+            const accountInfo = await this.connection.getAccountInfo(
+              account.pubkey,
+              'confirmed',
+            );
+            if (!accountInfo) {
+              return null;
             }
 
+            const state = this.anchorClient.program.coder.accounts.decode(
+              'auctionState',
+              accountInfo.data,
+            );
+
             return {
-              address: publicKey.toString(),
-              name: nftMetadata.name,
-              description: nftMetadata.description,
-              imageUrl: nftMetadata.uri,
-              authority: account.authority.toString(),
-              merkleTree: account.merkleTree.toString(),
-              basePrice: account.basePrice.toNumber() / 1e9,
-              priceIncrement: account.priceIncrement.toNumber() / 1e9,
-              currentSupply: account.currentSupply.toNumber(),
-              maxSupply: account.maxSupply.toNumber(),
-              minimumItems: account.minimumItems.toNumber(),
-              totalValueLocked: account.totalValueLocked.toNumber() / 1e9,
-              currentPrice: currentPrice / 1e9,
-              isGraduated: account.isGraduated,
-              status: account.isGraduated ? 'Graduated' : 'Active',
-              progressPercentage:
-                account.currentSupply.toNumber() /
-                account.minimumItems.toNumber(),
+              address: account.pubkey.toString(),
+              state,
             };
-          }),
+          } catch (error) {
+            log.warn('Error decoding auction account', {
+              account: account.pubkey.toString(),
+              error,
+            });
+            return null;
+          }
+        }),
+      );
+
+      // Filter out any null results from failed decoding
+      const validAuctions = auctionDetails.filter(
+        (auction): auction is NonNullable<typeof auction> => auction !== null,
       );
 
       return {
-        auctions: auctionDetails,
-        total: auctions.length,
+        auctions: validAuctions,
+        total: accounts.length,
       };
     } catch (error) {
-      log.error('Failed to fetch auctions', { error });
+      log.error('Error getting auctions:', error as Error);
       return {
         auctions: [],
         total: 0,
@@ -725,39 +467,24 @@ export class SolanaService {
     }
   }
 
-  async getAuctionDetails(
-    auctionAddress: string,
-  ): Promise<AuctionDetails | null> {
+  public async getAuctionDetails(auctionAddress: string): Promise<{
+    address: string;
+    state: anchor.IdlAccounts<SuperpullProgram>['auctionState'];
+    currentPrice: number;
+  }> {
     try {
-      const program = this.anchorClient.program;
-      const auctionPubkey = new PublicKey(auctionAddress);
-      const account = await program.account.auctionState.fetch(auctionPubkey);
-
-      if (!account) return null;
-
-      const currentPrice =
-        account.basePrice.toNumber() +
-        account.priceIncrement.toNumber() * account.currentSupply.toNumber();
+      const address = new PublicKey(auctionAddress);
+      const state = await this.anchorClient.getAuctionState(address);
+      const currentPrice = await this.anchorClient.getCurrentPrice(address);
 
       return {
         address: auctionAddress,
-        name: `SuperPull NFT #${account.currentSupply.toNumber() + 1}`,
-        description: 'A unique SuperPull NFT with bonding curve pricing',
-        imageUrl: 'https://assets.superpull.world/placeholder.png',
-        authority: account.authority.toString(),
-        merkleTree: account.merkleTree.toString(),
-        basePrice: account.basePrice.toNumber() / 1e9, // Convert from lamports to SOL
-        priceIncrement: account.priceIncrement.toNumber() / 1e9, // Convert from lamports to SOL
-        currentSupply: account.currentSupply.toNumber(),
-        maxSupply: account.maxSupply.toNumber(),
-        totalValueLocked: account.totalValueLocked.toNumber() / 1e9, // Convert from lamports to SOL
-        minimumItems: account.minimumItems.toNumber(),
-        isGraduated: account.isGraduated,
-        currentPrice: currentPrice / 1e9, // Convert from lamports to SOL
+        state,
+        currentPrice: currentPrice.price.toNumber(),
       };
     } catch (error) {
-      log.error('Failed to fetch auction details', { error });
-      return null;
+      log.error('Error getting auction details:', error as Error);
+      throw error;
     }
   }
 }
