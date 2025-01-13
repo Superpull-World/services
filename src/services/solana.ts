@@ -650,6 +650,7 @@ export class SolanaService {
             return instruction;
           },
         );
+      transaction.sign(this.payer);
 
       // Serialize and encode the transaction
       log.info('Serializing transaction');
