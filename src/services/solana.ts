@@ -1,5 +1,13 @@
 import * as anchor from '@coral-xyz/anchor';
-import { Connection, Keypair, PublicKey } from '@solana/web3.js';
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  Transaction,
+  SystemProgram,
+  NONCE_ACCOUNT_LENGTH,
+  TransactionInstruction,
+} from '@solana/web3.js';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { createTree, mplBubblegum } from '@metaplex-foundation/mpl-bubblegum';
 import {
@@ -27,6 +35,7 @@ import bs58 from 'bs58';
 
 import { AnchorClient } from './anchor-client';
 import { SuperpullProgram } from '../types/superpull_program';
+import { BN } from '@coral-xyz/anchor';
 
 // Constants
 const MAX_DEPTH = 14;
@@ -296,7 +305,7 @@ export class SolanaService {
     auctionAddress: PublicKey,
     bidderAddress: string,
     bidAmount: number,
-  ): Promise<{ txId: string }> {
+  ): Promise<{ txId: string | undefined }> {
     try {
       const result = await this.anchorClient.placeBid(
         auctionAddress,
@@ -305,7 +314,7 @@ export class SolanaService {
       );
 
       return {
-        txId: result,
+        txId: result.signature,
       };
     } catch (error) {
       log.error('Error placing bid:', error as Error);
@@ -485,6 +494,184 @@ export class SolanaService {
     } catch (error) {
       log.error('Error getting auction details:', error as Error);
       throw error;
+    }
+  }
+
+  async createDurableNonceTransaction(
+    authority: PublicKey,
+    getInstruction: () => Promise<TransactionInstruction>,
+  ): Promise<{ transaction: Transaction; lastValidBlockHeight: number }> {
+    // Create a new nonce account
+    const nonceAccount = Keypair.generate();
+    const minimumAmount =
+      await this.connection.getMinimumBalanceForRentExemption(
+        NONCE_ACCOUNT_LENGTH,
+      );
+
+    // Create and initialize nonce account
+    const createNonceAccountIx = SystemProgram.createAccount({
+      fromPubkey: this.payer.publicKey,
+      newAccountPubkey: nonceAccount.publicKey,
+      lamports: minimumAmount,
+      space: NONCE_ACCOUNT_LENGTH,
+      programId: SystemProgram.programId,
+    });
+
+    const initializeNonceIx = SystemProgram.nonceInitialize({
+      noncePubkey: nonceAccount.publicKey,
+      authorizedPubkey: authority,
+    });
+
+    // First create and send the transaction to create the nonce account
+    const setupTx = new Transaction();
+    setupTx.add(createNonceAccountIx, initializeNonceIx);
+    setupTx.feePayer = this.payer.publicKey;
+
+    const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash();
+    setupTx.recentBlockhash = blockhash;
+    setupTx.sign(this.payer, nonceAccount);
+    
+    await this.sendTransaction(setupTx);
+
+    // Get the nonce account data
+    const nonceAccountData = await this.connection.getAccountInfo(
+      nonceAccount.publicKey,
+    );
+    if (!nonceAccountData) {
+      throw new Error('Failed to create nonce account');
+    }
+
+    // Create the actual transaction using the nonce
+    const advanceNonceIx = SystemProgram.nonceAdvance({
+      noncePubkey: nonceAccount.publicKey,
+      authorizedPubkey: authority,
+    });
+
+    // Get the instruction that uses the nonce
+    const instruction = await getInstruction();
+
+    // Create the transaction
+    const transaction = new Transaction();
+    transaction.add(advanceNonceIx);  // Must be first
+    transaction.add(instruction);
+    transaction.feePayer = this.payer.publicKey;
+
+    // Use the nonce as the blockhash
+    const nonceAccount2 = await this.connection.getNonce(nonceAccount.publicKey);
+    if (!nonceAccount2?.nonce) {
+      throw new Error('Failed to get nonce value');
+    }
+    transaction.recentBlockhash = nonceAccount2.nonce;
+
+    return { transaction, lastValidBlockHeight };
+  }
+
+  async sendTransaction(transaction: Transaction): Promise<string> {
+    try {
+      const signature = await this.connection.sendRawTransaction(
+        transaction.serialize(),
+        { skipPreflight: false },
+      );
+
+      // Wait for confirmation
+      const confirmation = await this.connection.confirmTransaction({
+        signature,
+        blockhash: transaction.recentBlockhash!,
+        lastValidBlockHeight: transaction.lastValidBlockHeight!,
+      });
+
+      if (confirmation.value.err) {
+        throw new Error(`Transaction failed: ${confirmation.value.err}`);
+      }
+
+      return signature;
+    } catch (error) {
+      throw new Error(
+        `Failed to send transaction: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  async createBidTransaction(input: {
+    auctionAddress: string;
+    bidderAddress: string;
+    bidAmount: number;
+  }): Promise<{
+    success: boolean;
+    message?: string;
+    transaction?: string;
+    lastValidBlockHeight?: number;
+  }> {
+    try {
+      // Get the auction details
+      const auction = await this.getAuctionDetails(input.auctionAddress);
+      if (!auction) {
+        return {
+          success: false,
+          message: 'Auction not found',
+        };
+      }
+
+      // Create a durable nonce transaction
+      const { transaction, lastValidBlockHeight } =
+        await this.createDurableNonceTransaction(
+          new PublicKey(input.bidderAddress),
+          async () => {
+            const { instruction } = await this.anchorClient.placeBid(
+              new PublicKey(input.auctionAddress),
+              new PublicKey(input.bidderAddress),
+              input.bidAmount,
+              true,
+            );
+            if (!instruction) {
+              throw new Error('Failed to get bid instruction');
+            }
+            return instruction;
+          },
+        );
+
+      // Serialize and encode the transaction
+      const serializedTransaction = transaction.serialize({
+        requireAllSignatures: false,
+        verifySignatures: false,
+      });
+      const encodedTransaction = Buffer.from(serializedTransaction).toString('base64');
+
+      return {
+        success: true,
+        transaction: encodedTransaction,
+        lastValidBlockHeight,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: (error as Error).message,
+      };
+    }
+  }
+
+  async submitSignedBidTransaction(signedTransaction: string): Promise<{
+    success: boolean;
+    message?: string;
+    signature?: string;
+  }> {
+    try {
+      // Decode the signed transaction
+      const decodedTransaction = Buffer.from(signedTransaction, 'base64');
+      const transaction = Transaction.from(decodedTransaction);
+
+      // Submit the transaction
+      const signature = await this.sendTransaction(transaction);
+
+      return {
+        success: true,
+        signature,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: (error as Error).message,
+      };
     }
   }
 }

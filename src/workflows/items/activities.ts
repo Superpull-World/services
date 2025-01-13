@@ -198,7 +198,7 @@ export async function placeBid(input: PlaceBidInput): Promise<PlaceBidOutput> {
     );
 
     return {
-      transactionHash: result.txId,
+      transactionHash: result.txId || '',
       status: 'success',
       message: `Bid placed successfully for ${input.bidAmount} SOL`,
       bidAmount: input.bidAmount,

@@ -4,12 +4,10 @@ import {
   SampleWorkflowOutput,
   sampleWorkflow,
 } from './sample/workflows';
-import { createAuctionWorkflow, placeBidWorkflow } from './items/workflows';
+import { createAuctionWorkflow } from './items/workflows';
 import type {
   CreateAuctionInput,
   CreateAuctionOutput,
-  PlaceBidInput,
-  PlaceBidOutput,
 } from './items/activities';
 import { authWorkflow, AuthState } from './auth/workflows';
 import {
@@ -22,6 +20,12 @@ import type {
   GetAuctionDetailsInput,
   GetAuctionDetailsOutput,
 } from './auctions/activities';
+import { placeBidWorkflow } from './auctions/place-bid-workflow';
+import type {
+  PlaceBidInput,
+  PlaceBidOutput,
+  SubmitSignedBidOutput,
+} from './auctions/place-bid-activities';
 
 export type QueryResult =
   | string
@@ -45,7 +49,15 @@ export interface WorkflowEntry<
 interface WorkflowRegistry {
   sampleWorkflow: WorkflowEntry<SampleWorkflowInput, SampleWorkflowOutput>;
   createAuction: WorkflowEntry<CreateAuctionInput, CreateAuctionOutput>;
-  placeBid: WorkflowEntry<PlaceBidInput, PlaceBidOutput>;
+  placeBid: WorkflowEntry<
+    PlaceBidInput,
+    PlaceBidOutput,
+    {
+      status: string;
+      unsignedTransaction: string | null;
+      submissionResult: SubmitSignedBidOutput | null;
+    }
+  >;
   auth: WorkflowEntry<string, void, { getState: AuthState }>;
   getAuctions: WorkflowEntry<
     GetAuctionsInput,

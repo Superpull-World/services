@@ -16,7 +16,6 @@ const {
   createAuctionCollection: createCollection,
   initializeAuction: initAuction,
   verifyUserJWT: verifyJWT,
-  placeBid: placeBidActivity,
 } = proxyActivities<{
   createAuctionCollection: typeof createAuctionCollection;
   initializeAuction: typeof initializeAuction;
@@ -124,41 +123,6 @@ export const createAuctionWorkflowFunction = async (
 
 export const createAuctionWorkflow: CreateAuctionWorkflow = {
   workflow: createAuctionWorkflowFunction,
-  taskQueue: 'item-task-queue',
-  queries: {
-    status,
-  },
-};
-
-export const placeBidWorkflowFunction = async (
-  input: PlaceBidInput,
-): Promise<PlaceBidOutput> => {
-  log.info('Starting bid workflow', { input });
-  setHandler(status, () => 'verifying-jwt');
-
-  // First verify JWT
-  const jwtVerification = await verifyJWT({
-    jwt: input.jwt,
-    walletAddress: input.bidderAddress,
-  });
-
-  if (!jwtVerification.isValid) {
-    log.error('JWT verification failed', { jwtVerification });
-    setHandler(status, () => 'jwt-verification-failed');
-    return {
-      transactionHash: '',
-      status: 'failed',
-      message: jwtVerification.message || 'JWT verification failed',
-      bidAmount: input.bidAmount,
-    };
-  }
-
-  setHandler(status, () => 'placing-bid');
-  return await placeBidActivity(input);
-};
-
-export const placeBidWorkflow: PlaceBidWorkflow = {
-  workflow: placeBidWorkflowFunction,
   taskQueue: 'item-task-queue',
   queries: {
     status,

@@ -1,6 +1,10 @@
 import * as anchor from '@coral-xyz/anchor';
 import { Program } from '@coral-xyz/anchor';
-import { PublicKey, SystemProgram } from '@solana/web3.js';
+import {
+  PublicKey,
+  SystemProgram,
+  TransactionInstruction,
+} from '@solana/web3.js';
 import { log } from '@temporalio/activity';
 import { SuperpullProgram } from '../types/superpull_program';
 import IDL from '../idl/superpull_program.json';
@@ -138,7 +142,8 @@ export class AnchorClient {
     auction: PublicKey,
     bidder: PublicKey,
     amount: number,
-  ): Promise<string> {
+    returnInstruction = false,
+  ): Promise<{ instruction?: TransactionInstruction; signature?: string }> {
     log.info('Placing bid through Anchor program', {
       auction: auction.toString(),
       bidder: bidder.toString(),
@@ -151,12 +156,6 @@ export class AnchorClient {
     );
 
     const auctionState = await this.program.account.auctionState.fetch(auction);
-
-    // Get collection mint from auction PDA
-    const [collectionMint] = PublicKey.findProgramAddressSync(
-      [Buffer.from('collection'), auction.toBuffer()],
-      this.program.programId,
-    );
 
     // Get tree config PDA
     const [treeConfig] = PublicKey.findProgramAddressSync(
@@ -176,7 +175,7 @@ export class AnchorClient {
       merkleTree: auctionState.merkleTree,
       treeConfig,
       treeCreator,
-      collectionMint,
+      collectionMint: auctionState.collectionMint,
       tokenMint: auctionState.tokenMint,
       bidderTokenAccount: await this.findAssociatedTokenAccount(
         bidder,
@@ -187,11 +186,15 @@ export class AnchorClient {
         auctionState.tokenMint,
       ),
       authority: auctionState.authority,
-      collectionMetadata: await this.findMetadataAddress(collectionMint),
-      collectionEdition: await this.findEditionAddress(collectionMint),
+      collectionMetadata: await this.findMetadataAddress(
+        auctionState.collectionMint,
+      ),
+      collectionEdition: await this.findEditionAddress(
+        auctionState.collectionMint,
+      ),
       collectionAuthorityRecordPda: await this.findCollectionAuthorityRecordPda(
-        collectionMint,
-        auction,
+        auctionState.collectionMint,
+        auctionState.authority,
       ),
       bubblegumProgram: new PublicKey(
         'BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY',
@@ -209,16 +212,18 @@ export class AnchorClient {
       systemProgram: SystemProgram.programId,
     };
 
-    const tx = await this.program.methods
+    const method = this.program.methods
       .placeBid(new anchor.BN(amount))
-      .accounts(accounts)
-      .rpc();
+      .accounts(accounts);
 
-    log.info('Bid placed successfully', {
-      signature: tx,
-    });
+    if (returnInstruction) {
+      const instruction = await method.instruction();
+      return { instruction };
+    }
 
-    return tx;
+    const signature = await method.rpc();
+    log.info('Bid placed successfully', { signature });
+    return { signature };
   }
 
   private async findAssociatedTokenAccount(
@@ -291,6 +296,8 @@ export class AnchorClient {
         authority: state.authority.toString(),
         merkleTree: state.merkleTree.toString(),
         basePrice: state.basePrice.toString(),
+        collectionMint: state.collectionMint.toString(),
+        tokenMint: state.tokenMint.toString(),
         priceIncrement: state.priceIncrement.toString(),
         maxSupply: state.maxSupply.toString(),
         currentSupply: state.currentSupply.toString(),
