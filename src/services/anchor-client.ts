@@ -9,12 +9,34 @@ import {
 import { log } from '@temporalio/activity';
 import { SuperpullProgram } from '../types/superpull_program';
 import IDL from '../idl/superpull_program.json';
-import { fetchTreeConfigFromSeeds } from '@metaplex-foundation/mpl-bubblegum';
+import {
+  fetchTreeConfigFromSeeds,
+  mplBubblegum,
+} from '@metaplex-foundation/mpl-bubblegum';
 import {
   fromWeb3JsPublicKey,
   toWeb3JsPublicKey,
 } from '@metaplex-foundation/umi-web3js-adapters';
 import { Umi } from '@metaplex-foundation/umi';
+import {
+  findMetadataPda,
+  findMasterEditionPda,
+  findCollectionAuthorityRecordPda,
+  mplTokenMetadata,
+} from '@metaplex-foundation/mpl-token-metadata';
+import {
+  getAssociatedTokenAddressSync,
+  getOrCreateAssociatedTokenAccount,
+  TOKEN_PROGRAM_ID,
+} from '@solana/spl-token';
+import {
+  AUCTION_MINT,
+  TOKEN_METADATA_PROGRAM_ID,
+  BUBBLEGUM_PROGRAM_ID,
+  COMPRESSION_PROGRAM_ID,
+  LOG_WRAPPER_PROGRAM_ID,
+} from '../config/env';
+import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 
 interface InitializeAuctionAccounts {
   auction: PublicKey;
@@ -51,6 +73,7 @@ interface PlaceBidAccounts {
 
 export class AnchorClient {
   program: Program<SuperpullProgram>;
+  umi: Umi;
 
   constructor(provider: anchor.AnchorProvider) {
     log.debug('Initializing Anchor client', {
@@ -58,6 +81,11 @@ export class AnchorClient {
     });
     // @ts-expect-error IDL type mismatch
     this.program = new Program(IDL, provider);
+
+    // Initialize UMI
+    this.umi = createUmi(provider.connection.rpcEndpoint)
+      .use(mplTokenMetadata())
+      .use(mplBubblegum());
   }
 
   async initializeAuction(
@@ -89,11 +117,9 @@ export class AnchorClient {
       auction: auctionAddress,
       merkleTree,
       collectionMint,
-      tokenMint: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+      tokenMint: AUCTION_MINT,
       authority,
-      bubblegumProgram: new PublicKey(
-        'BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY',
-      ),
+      bubblegumProgram: BUBBLEGUM_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     };
 
@@ -165,55 +191,88 @@ export class AnchorClient {
     );
 
     const auctionState = await this.program.account.auctionState.fetch(auction);
+    log.info('Auction state', {
+      auctionState: auctionState,
+    });
 
     // Get tree config PDA
     const treeConfig = await fetchTreeConfigFromSeeds(umi, {
       merkleTree: fromWeb3JsPublicKey(auctionState.merkleTree),
     });
 
-    const accounts: PlaceBidAccounts = {
+    const bidderTokenAccount = getAssociatedTokenAddressSync(
+      AUCTION_MINT,
+      bidder,
+    );
+    const auctionTokenAccount = await getOrCreateAssociatedTokenAccount(
+      this.program.provider.connection,
+      payer,
+      AUCTION_MINT,
+      auction,
+      true,
+    );
+    const collectionMetadata = findMetadataPda(this.umi, {
+      mint: fromWeb3JsPublicKey(auctionState.collectionMint),
+    });
+    const collectionEdition = findMasterEditionPda(this.umi, {
+      mint: fromWeb3JsPublicKey(auctionState.collectionMint),
+    });
+    const collectionAuthorityRecordPda = findCollectionAuthorityRecordPda(
+      this.umi,
+      {
+        mint: fromWeb3JsPublicKey(auctionState.collectionMint),
+        collectionAuthority: fromWeb3JsPublicKey(auction),
+      },
+    );
+    const bubblegumSigner = PublicKey.findProgramAddressSync(
+      [Buffer.from('collection_cpi', 'utf-8')],
+      BUBBLEGUM_PROGRAM_ID,
+    )[0];
+
+    log.info('Bid address', {
+      bid: bidAddress.toString(),
+      bidder: bidder.toString(),
+      merkleTree: auctionState.merkleTree.toString(),
+      treeConfig: treeConfig.publicKey.toString(),
+      treeCreator: payer.publicKey.toString(),
+      collectionMint: auctionState.collectionMint.toString(),
+      collectionMetadata: collectionMetadata.toString(),
+      collectionEdition: collectionEdition.toString(),
+      collectionAuthorityRecordPda: collectionAuthorityRecordPda.toString(),
+      tokenMint: AUCTION_MINT.toString(),
+      authority: auctionState.authority.toString(),
+      bubblegumSigner: bubblegumSigner.toString(),
+      tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID.toString(),
+      compressionProgram: COMPRESSION_PROGRAM_ID.toString(),
+      logWrapper: LOG_WRAPPER_PROGRAM_ID.toString(),
+      bubblegumProgram: BUBBLEGUM_PROGRAM_ID.toString(),
+      systemProgram: SystemProgram.programId.toString(),
+      tokenProgram: TOKEN_PROGRAM_ID.toString(),
+    });
+    const accounts = {
       auction,
       bid: bidAddress,
       bidder,
+      bidderTokenAccount,
+      auctionTokenAccount: auctionTokenAccount.address,
+      collectionMint: auctionState.collectionMint,
+      collectionMetadata: collectionMetadata[0].toString(),
+      collectionEdition: collectionEdition[0].toString(),
+      collectionAuthorityRecordPda: collectionAuthorityRecordPda[0].toString(),
       merkleTree: auctionState.merkleTree,
       treeConfig: toWeb3JsPublicKey(treeConfig.publicKey),
       treeCreator: payer.publicKey,
-      collectionMint: auctionState.collectionMint,
-      tokenMint: auctionState.tokenMint,
-      bidderTokenAccount: await this.findAssociatedTokenAccount(
-        bidder,
-        auctionState.tokenMint,
-      ),
-      auctionTokenAccount: await this.findAssociatedTokenAccount(
-        auction,
-        auctionState.tokenMint,
-      ),
-      authority: auctionState.authority,
-      collectionMetadata: await this.findMetadataAddress(
-        auctionState.collectionMint,
-      ),
-      collectionEdition: await this.findEditionAddress(
-        auctionState.collectionMint,
-      ),
-      collectionAuthorityRecordPda: await this.findCollectionAuthorityRecordPda(
-        auctionState.collectionMint,
-        auctionState.authority,
-      ),
-      bubblegumProgram: new PublicKey(
-        'BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY',
-      ),
-      tokenMetadataProgram: new PublicKey(
-        'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s',
-      ),
-      compressionProgram: new PublicKey(
-        'cmtDvXumGCrqC1Age74AVPhSRVXJMd8PJS91L8KbNCK',
-      ),
-      logWrapper: new PublicKey('noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV'),
-      tokenProgram: new PublicKey(
-        'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
-      ),
+      bubblegumSigner: bubblegumSigner,
+      tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+      compressionProgram: COMPRESSION_PROGRAM_ID,
+      logWrapper: LOG_WRAPPER_PROGRAM_ID,
+      bubblegumProgram: BUBBLEGUM_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
+      tokenProgram: TOKEN_PROGRAM_ID,
     };
+    log.info('Place bid accounts', {
+      accounts: accounts,
+    });
 
     const method = this.program.methods
       .placeBid(new anchor.BN(amount))
@@ -229,61 +288,48 @@ export class AnchorClient {
     return { signature };
   }
 
-  private async findAssociatedTokenAccount(
-    owner: PublicKey,
-    mint: PublicKey,
-  ): Promise<PublicKey> {
-    const [ata] = PublicKey.findProgramAddressSync(
-      [
-        owner.toBuffer(),
-        new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA').toBuffer(),
-        mint.toBuffer(),
-      ],
-      new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'),
-    );
-    return ata;
-  }
-
   private async findMetadataAddress(mint: PublicKey): Promise<PublicKey> {
-    const [metadata] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from('metadata'),
-        new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s').toBuffer(),
-        mint.toBuffer(),
-      ],
-      new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'),
-    );
-    return metadata;
+    log.info('Finding metadata address', {
+      mint: mint.toString(),
+    });
+    const pda = findMetadataPda(this.umi, {
+      mint: fromWeb3JsPublicKey(mint),
+    });
+    log.info('Metadata address found', {
+      pda: pda.toString(),
+    });
+    return new PublicKey(pda.toString());
   }
 
   private async findEditionAddress(mint: PublicKey): Promise<PublicKey> {
-    const [edition] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from('metadata'),
-        new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s').toBuffer(),
-        mint.toBuffer(),
-        Buffer.from('edition'),
-      ],
-      new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'),
-    );
-    return edition;
+    log.info('Finding edition address', {
+      mint: mint.toString(),
+    });
+    const pda = findMasterEditionPda(this.umi, {
+      mint: fromWeb3JsPublicKey(mint),
+    });
+    log.info('Edition address found', {
+      pda: pda.toString(),
+    });
+    return new PublicKey(pda.toString());
   }
 
   private async findCollectionAuthorityRecordPda(
     mint: PublicKey,
     authority: PublicKey,
   ): Promise<PublicKey> {
-    const [pda] = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from('metadata'),
-        new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s').toBuffer(),
-        mint.toBuffer(),
-        Buffer.from('collection_authority'),
-        authority.toBuffer(),
-      ],
-      new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'),
-    );
-    return pda;
+    log.info('Finding collection authority record PDA', {
+      mint: mint.toString(),
+      authority: authority.toString(),
+    });
+    const pda = findCollectionAuthorityRecordPda(this.umi, {
+      mint: fromWeb3JsPublicKey(mint),
+      collectionAuthority: fromWeb3JsPublicKey(authority),
+    });
+    log.info('Collection authority record PDA found', {
+      pda: pda.toString(),
+    });
+    return new PublicKey(pda.toString());
   }
 
   async getAuctionState(auctionAddress: PublicKey) {

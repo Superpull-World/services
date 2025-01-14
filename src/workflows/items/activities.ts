@@ -151,8 +151,8 @@ export async function initializeAuction(
       merkleTree,
       new PublicKey(input.ownerAddress),
       new PublicKey(collectionMint),
-      input.price * 1e9, // Convert to lamports
-      0.1 * 1e9, // Fixed price increment of 0.1 SOL
+      input.price * 1e6,
+      0.1 * 1e6,
       input.maxSupply,
       input.minimumItems,
       input.deadline,

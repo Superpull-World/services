@@ -38,7 +38,7 @@ import {
 } from '@metaplex-foundation/umi-web3js-adapters';
 import { log } from '@temporalio/activity';
 import bs58 from 'bs58';
-
+import { AUCTION_MINT } from '../config/env';
 import { AnchorClient } from './anchor-client';
 import { SuperpullProgram } from '../types/superpull_program';
 
@@ -348,6 +348,17 @@ export class SolanaService {
         },
       });
 
+      // Add token mint filter
+      if (!AUCTION_MINT) {
+        throw new Error('AUCTION_MINT environment variable is not set');
+      }
+      memcmpFilters.push({
+        memcmp: {
+          offset: 72, // After discriminator(8) + authority(32) + merkle_tree(32)
+          bytes: new PublicKey(AUCTION_MINT).toBase58(),
+        },
+      });
+
       // Add authority filter if provided
       if (filters.authority) {
         memcmpFilters.push({
@@ -359,7 +370,7 @@ export class SolanaService {
       }
 
       // Add isGraduated filter if provided
-      if (filters.isGraduated !== undefined) {
+      if (filters.isGraduated) {
         // Offset calculation based on AuctionState layout:
         // 8 (discriminator) +
         // 32 (authority) +
@@ -582,12 +593,13 @@ export class SolanaService {
         transaction.serialize(),
         { skipPreflight: false },
       );
+      const blockhash = await this.connection.getLatestBlockhash();
 
       // Wait for confirmation
       const confirmation = await this.connection.confirmTransaction({
         signature,
-        blockhash: transaction.recentBlockhash!,
-        lastValidBlockHeight: transaction.lastValidBlockHeight!,
+        blockhash: blockhash.blockhash,
+        lastValidBlockHeight: blockhash.lastValidBlockHeight,
       });
 
       if (confirmation.value.err) {
