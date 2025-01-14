@@ -14,11 +14,13 @@ import {
   getAuctionsWorkflow,
   getAuctionDetailsWorkflow,
 } from './auctions/workflows/details';
+import { getAcceptedTokenMintsWorkflow } from './auctions/workflows/token-mints';
 import type {
   GetAuctionsInput,
   GetAuctionsOutput,
   GetAuctionDetailsInput,
   GetAuctionDetailsOutput,
+  GetAcceptedTokenMintsOutput,
 } from './auctions';
 import { placeBidWorkflow } from './auctions/workflows/place-bid';
 import type {
@@ -31,6 +33,7 @@ export type QueryResult =
   | string
   | GetAuctionsOutput
   | GetAuctionDetailsOutput
+  | GetAcceptedTokenMintsOutput
   | AuthState
   | null;
 
@@ -75,6 +78,14 @@ interface WorkflowRegistry {
       detailsResult: GetAuctionDetailsOutput | null;
     }
   >;
+  getAcceptedTokenMints: WorkflowEntry<
+    void,
+    GetAcceptedTokenMintsOutput,
+    {
+      status: string;
+      tokenMintsResult: GetAcceptedTokenMintsOutput | null;
+    }
+  >;
 }
 
 export const workflowRegistry: WorkflowRegistry = {
@@ -84,4 +95,5 @@ export const workflowRegistry: WorkflowRegistry = {
   auth: authWorkflow,
   getAuctions: getAuctionsWorkflow,
   getAuctionDetails: getAuctionDetailsWorkflow,
+  getAcceptedTokenMints: getAcceptedTokenMintsWorkflow,
 };

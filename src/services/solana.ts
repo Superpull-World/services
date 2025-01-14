@@ -21,6 +21,8 @@ import {
   mplTokenMetadata,
   findCollectionAuthorityRecordPda,
   approveCollectionAuthority,
+  findMetadataPda,
+  deserializeMetadata,
 } from '@metaplex-foundation/mpl-token-metadata';
 import {
   keypairIdentity,
@@ -41,6 +43,7 @@ import bs58 from 'bs58';
 import { AUCTION_MINT } from '../config/env';
 import { AnchorClient } from './anchor-client';
 import { SuperpullProgram } from '../types/superpull_program';
+import { getMint } from '@solana/spl-token';
 
 // Constants
 const MAX_DEPTH = 14;
@@ -708,6 +711,48 @@ export class SolanaService {
       return {
         success: false,
         message: (error as Error).message,
+      };
+    }
+  }
+
+  public async getTokenMetadata(mint: PublicKey) {
+    // Get SPL token info
+    const mintInfo = await getMint(this.connection, mint);
+    
+    try {
+      // Get MPL metadata
+      const [metadataPda] = findMetadataPda(this.umi, {
+        mint: fromWeb3JsPublicKey(mint),
+      });
+      const metadata = await this.umi.rpc.getAccount(metadataPda);
+
+      if (!metadata.exists) {
+        // Return default values if metadata not found
+        return {
+          name: mint.toString().slice(0, 8), // First 8 chars of mint address
+          symbol: 'UNKNOWN',
+          uri: '',
+          decimals: mintInfo.decimals,
+          supply: mintInfo.supply.toString(),
+        };
+      }
+
+      const tokenMetadata = deserializeMetadata(metadata);
+      return {
+        name: tokenMetadata.name.trim().replace(/\0/g, ''),
+        symbol: tokenMetadata.symbol.trim().replace(/\0/g, ''),
+        uri: tokenMetadata.uri.trim().replace(/\0/g, ''),
+        decimals: mintInfo.decimals,
+        supply: mintInfo.supply.toString(),
+      };
+    } catch (error) {
+      // Return default values if metadata fetch fails
+      return {
+        name: mint.toString().slice(0, 8),
+        symbol: 'UNKNOWN',
+        uri: '',
+        decimals: mintInfo.decimals,
+        supply: mintInfo.supply.toString(),
       };
     }
   }

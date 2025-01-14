@@ -6,3 +6,7 @@ export {
   status as detailsStatus,
   getAuctionsWorkflowFunction,
 } from './details';
+export {
+  status as tokenMintsStatus,
+  getAcceptedTokenMintsWorkflowFunction,
+} from './token-mints';
