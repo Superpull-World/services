@@ -30,7 +30,7 @@ import {
   TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 import {
-  AUCTION_MINT,
+  AUCTION_MINTS,
   TOKEN_METADATA_PROGRAM_ID,
   BUBBLEGUM_PROGRAM_ID,
   COMPRESSION_PROGRAM_ID,
@@ -45,29 +45,6 @@ interface InitializeAuctionAccounts {
   tokenMint: PublicKey;
   authority: PublicKey;
   bubblegumProgram: PublicKey;
-  systemProgram: PublicKey;
-}
-
-interface PlaceBidAccounts {
-  auction: PublicKey;
-  bid: PublicKey;
-  bidder: PublicKey;
-  merkleTree: PublicKey;
-  treeConfig: PublicKey;
-  treeCreator: PublicKey;
-  collectionMint: PublicKey;
-  tokenMint: PublicKey;
-  bidderTokenAccount: PublicKey;
-  auctionTokenAccount: PublicKey;
-  authority: PublicKey;
-  collectionMetadata: PublicKey;
-  collectionEdition: PublicKey;
-  collectionAuthorityRecordPda: PublicKey;
-  bubblegumProgram: PublicKey;
-  tokenMetadataProgram: PublicKey;
-  compressionProgram: PublicKey;
-  logWrapper: PublicKey;
-  tokenProgram: PublicKey;
   systemProgram: PublicKey;
 }
 
@@ -97,13 +74,25 @@ export class AnchorClient {
     maxSupply: number,
     minimumItems: number,
     deadline: number,
+    tokenMint: PublicKey,
   ): Promise<{ auctionAddress: PublicKey; signature: string }> {
+    const auction_mint = AUCTION_MINTS.find(
+      (mint) => mint.mint.toString() === tokenMint.toString(),
+    );
+    // Validate that the token mint is in the accepted list
+    if (!auction_mint) {
+      throw new Error(
+        `Token mint ${tokenMint.toBase58()} is not in the list of accepted mints`,
+      );
+    }
+
     log.info('Initializing auction', {
       merkleTree: merkleTree.toString(),
       authority: authority.toString(),
       collectionMint: collectionMint.toString(),
-      basePrice,
-      priceIncrement,
+      tokenMint: tokenMint.toString(),
+      basePrice: basePrice * 10 ** auction_mint.decimals,
+      priceIncrement: priceIncrement * 10 ** auction_mint.decimals,
       maxSupply,
       minimumItems,
     });
@@ -117,7 +106,7 @@ export class AnchorClient {
       auction: auctionAddress,
       merkleTree,
       collectionMint,
-      tokenMint: AUCTION_MINT,
+      tokenMint,
       authority,
       bubblegumProgram: BUBBLEGUM_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
@@ -125,8 +114,8 @@ export class AnchorClient {
 
     const tx = await this.program.methods
       .initializeAuction(
-        new anchor.BN(basePrice),
-        new anchor.BN(priceIncrement),
+        new anchor.BN(basePrice * 10 ** auction_mint.decimals),
+        new anchor.BN(priceIncrement * 10 ** auction_mint.decimals),
         new anchor.BN(maxSupply),
         new anchor.BN(minimumItems),
         new anchor.BN(deadline),
@@ -201,13 +190,13 @@ export class AnchorClient {
     });
 
     const bidderTokenAccount = getAssociatedTokenAddressSync(
-      AUCTION_MINT,
+      auctionState.tokenMint,
       bidder,
     );
     const auctionTokenAccount = await getOrCreateAssociatedTokenAccount(
       this.program.provider.connection,
       payer,
-      AUCTION_MINT,
+      auctionState.tokenMint,
       auction,
       true,
     );
@@ -239,7 +228,7 @@ export class AnchorClient {
       collectionMetadata: collectionMetadata.toString(),
       collectionEdition: collectionEdition.toString(),
       collectionAuthorityRecordPda: collectionAuthorityRecordPda.toString(),
-      tokenMint: AUCTION_MINT.toString(),
+      tokenMint: auctionState.tokenMint.toString(),
       authority: auctionState.authority.toString(),
       bubblegumSigner: bubblegumSigner.toString(),
       tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID.toString(),

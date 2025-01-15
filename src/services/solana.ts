@@ -40,7 +40,7 @@ import {
 } from '@metaplex-foundation/umi-web3js-adapters';
 import { log } from '@temporalio/activity';
 import bs58 from 'bs58';
-import { AUCTION_MINT } from '../config/env';
+import { AUCTION_MINTS } from '../config/env';
 import { AnchorClient } from './anchor-client';
 import { SuperpullProgram } from '../types/superpull_program';
 import { getMint } from '@solana/spl-token';
@@ -114,50 +114,55 @@ export class SolanaService {
         collectionAddress: this.collectionMint.publicKey.toString(),
       });
 
-      const collectionAccount = await this.connection.getAccountInfo(
-        this.collectionMint.publicKey,
-      );
-
-      if (!collectionAccount) {
-        // Collection doesn't exist, create it
-        log.info('Creating collection mint', {
-          collectionMint: this.collectionMint.publicKey.toString(),
-        });
-
-        // Convert the collection mint keypair to Umi signer format
-        const collectionKeypair = this.umi.eddsa.createKeypairFromSecretKey(
-          this.collectionMint.secretKey,
-        );
-        const collectionSigner = createSignerFromKeypair(
-          this.umi,
-          collectionKeypair,
+      try {
+        const collectionAccount = await this.connection.getAccountInfo(
+          this.collectionMint.publicKey,
         );
 
-        const builder = createNft(this.umi, {
-          mint: collectionSigner,
-          name: COLLECTION_NAME,
-          symbol: COLLECTION_SYMBOL,
-          uri: COLLECTION_URI,
-          sellerFeeBasisPoints: percentAmount(0),
-          isCollection: true,
-          creators: none(),
-          collection: none(),
-          uses: none(),
-        });
+        if (!collectionAccount) {
+          // Collection doesn't exist, create it
+          log.info('Creating collection mint', {
+            collectionMint: this.collectionMint.publicKey.toString(),
+          });
 
-        await builder.sendAndConfirm(this.umi);
+          // Convert the collection mint keypair to Umi signer format
+          const collectionKeypair = this.umi.eddsa.createKeypairFromSecretKey(
+            this.collectionMint.secretKey,
+          );
+          const collectionSigner = createSignerFromKeypair(
+            this.umi,
+            collectionKeypair,
+          );
 
-        log.info('Collection mint created', {
-          collectionMint: this.collectionMint.publicKey.toString(),
-        });
-      } else {
-        log.info('Collection mint already exists', {
-          collectionMint: this.collectionMint.publicKey.toString(),
+          const builder = createNft(this.umi, {
+            mint: collectionSigner,
+            name: COLLECTION_NAME,
+            symbol: COLLECTION_SYMBOL,
+            uri: COLLECTION_URI,
+            sellerFeeBasisPoints: percentAmount(0),
+            isCollection: true,
+            creators: none(),
+            collection: none(),
+            uses: none(),
+          });
+
+          await builder.sendAndConfirm(this.umi);
+
+          log.info('Collection mint created');
+        } else {
+          log.info('Collection mint already exists');
+        }
+      } catch (error) {
+        // Log the error but don't throw, allow the service to continue without collection support.
+        log.warn('Failed to initialize collection. Service will continue without collection support.', {
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     } catch (error) {
-      log.error('Error initializing collection:', error as Error);
-      throw error;
+      // Log any unexpected errors but don't throw
+      log.error('Unexpected error during collection initialization', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -292,6 +297,7 @@ export class SolanaService {
     maxSupply: number,
     minimumItems: number,
     deadline: number,
+    tokenMint: PublicKey,
   ): Promise<{ auctionAddress: PublicKey; txId: string }> {
     try {
       const result = await this.anchorClient.initializeAuction(
@@ -303,6 +309,7 @@ export class SolanaService {
         maxSupply,
         minimumItems,
         deadline,
+        tokenMint,
       );
 
       return {
@@ -348,17 +355,6 @@ export class SolanaService {
         memcmp: {
           offset: 0,
           bytes: bs58.encode(discriminator),
-        },
-      });
-
-      // Add token mint filter
-      if (!AUCTION_MINT) {
-        throw new Error('AUCTION_MINT environment variable is not set');
-      }
-      memcmpFilters.push({
-        memcmp: {
-          offset: 72, // After discriminator(8) + authority(32) + merkle_tree(32)
-          bytes: new PublicKey(AUCTION_MINT).toBase58(),
         },
       });
 
@@ -413,47 +409,49 @@ export class SolanaService {
         total: accounts.length,
       });
 
-      // Apply pagination
-      const start = Math.max(0, filters.offset || 0);
-      const maxEnd = accounts.length;
-      const end = filters.limit
-        ? Math.min(start + filters.limit, maxEnd)
-        : maxEnd;
-
-      // Return empty if start is beyond bounds
-      if (start >= maxEnd) {
-        return {
-          auctions: [],
-          total: accounts.length,
-        };
-      }
-
-      // Get paginated accounts
-      const paginatedAccounts = accounts.slice(start, end);
-
-      // Fetch full account data for paginated accounts
-      const auctionDetails = await Promise.all(
-        paginatedAccounts.map(async (account) => {
+      // Get full account data for all accounts
+      const allAuctionDetails = await Promise.all(
+        accounts.map(async (account) => {
           try {
             const accountInfo = await this.connection.getAccountInfo(
               account.pubkey,
               'confirmed',
             );
             if (!accountInfo) {
+              log.warn('Account not found', {
+                account: account.pubkey.toString(),
+              });
               return null;
             }
 
-            const state = this.anchorClient.program.coder.accounts.decode(
-              'auctionState',
-              accountInfo.data,
-            );
+            // Check if account data is large enough for an auction state
+            if (accountInfo.data.length < 192) {
+              // log.warn('Account data too small to be an auction state', {
+              //   account: account.pubkey.toString(),
+              //   dataLength: accountInfo.data.length,
+              // });
+              return null;
+            }
 
-            return {
-              address: account.pubkey.toString(),
-              state,
-            };
+            try {
+              const state = this.anchorClient.program.coder.accounts.decode(
+                'auctionState',
+                accountInfo.data,
+              );
+              return {
+                address: account.pubkey.toString(),
+                state,
+              };
+            } catch (decodeError) {
+              log.warn('Error decoding auction account', {
+                account: account.pubkey.toString(),
+                error: decodeError,
+                dataLength: accountInfo.data.length,
+              });
+              return null;
+            }
           } catch (error) {
-            log.warn('Error decoding auction account', {
+            log.warn('Error fetching account info', {
               account: account.pubkey.toString(),
               error,
             });
@@ -462,14 +460,40 @@ export class SolanaService {
         }),
       );
 
-      // Filter out any null results from failed decoding
-      const validAuctions = auctionDetails.filter(
-        (auction): auction is NonNullable<typeof auction> => auction !== null,
+      // Filter out null results and auctions with non-accepted token mints
+      const validAuctions = allAuctionDetails.filter(
+        (auction): auction is NonNullable<typeof auction> => {
+          if (!auction) return false;
+
+          // Check if the auction's token mint is in the accepted list
+          const tokenMint = auction.state.tokenMint.toString();
+          return AUCTION_MINTS.some(
+            (mint) => mint.mint.toString() === tokenMint,
+          );
+        },
       );
 
+      // Apply pagination after filtering
+      const start = Math.max(0, filters.offset || 0);
+      const maxEnd = validAuctions.length;
+      const end = filters.limit
+        ? Math.min(start + filters.limit, maxEnd)
+        : maxEnd;
+
+      // Return empty if start is beyond bounds
+      if (start >= maxEnd) {
+        return {
+          auctions: [],
+          total: validAuctions.length,
+        };
+      }
+
+      // Get paginated results
+      const paginatedAuctions = validAuctions.slice(start, end);
+
       return {
-        auctions: validAuctions,
-        total: accounts.length,
+        auctions: paginatedAuctions,
+        total: validAuctions.length,
       };
     } catch (error) {
       log.error('Error getting auctions:', error as Error);
@@ -718,7 +742,7 @@ export class SolanaService {
   public async getTokenMetadata(mint: PublicKey) {
     // Get SPL token info
     const mintInfo = await getMint(this.connection, mint);
-    
+
     try {
       // Get MPL metadata
       const [metadataPda] = findMetadataPda(this.umi, {
@@ -730,8 +754,8 @@ export class SolanaService {
         // Return default values if metadata not found
         return {
           name: mint.toString().slice(0, 8), // First 8 chars of mint address
-          symbol: 'UNKNOWN',
-          uri: '',
+          symbol: undefined,
+          uri: undefined,
           decimals: mintInfo.decimals,
           supply: mintInfo.supply.toString(),
         };
@@ -746,6 +770,7 @@ export class SolanaService {
         supply: mintInfo.supply.toString(),
       };
     } catch (error) {
+      log.error('Error fetching token metadata:', error as Error);
       // Return default values if metadata fetch fails
       return {
         name: mint.toString().slice(0, 8),

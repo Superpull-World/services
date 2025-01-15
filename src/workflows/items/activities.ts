@@ -14,6 +14,7 @@ export interface CreateAuctionInput {
   minimumItems: number;
   jwt: string;
   deadline: number; // Unix timestamp in seconds
+  tokenMint: string;
 }
 
 export interface AuctionCollectionOutput {
@@ -151,11 +152,12 @@ export async function initializeAuction(
       merkleTree,
       new PublicKey(input.ownerAddress),
       new PublicKey(collectionMint),
-      input.price * 1e6,
-      0.1 * 1e6,
+      input.price,
+      0.1,
       input.maxSupply,
       input.minimumItems,
       input.deadline,
+      new PublicKey(input.tokenMint),
     );
 
     return {

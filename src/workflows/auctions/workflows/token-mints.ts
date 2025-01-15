@@ -27,19 +27,19 @@ export type GetAcceptedTokenMintsWorkflow = WorkflowEntry<
 >;
 
 export async function getAcceptedTokenMintsWorkflowFunction(): Promise<GetAcceptedTokenMintsOutput> {
-  let currentStatus = 'STARTED';
+  let currentStatus = 'started';
   setHandler(status, () => currentStatus);
   setHandler(tokenMintsResult, () => null);
 
   try {
-    currentStatus = 'FETCHING_TOKEN_MINTS';
+    currentStatus = 'fetching_token_mints';
     const result = await getAcceptedTokenMintsActivity();
 
-    currentStatus = 'COMPLETED';
+    currentStatus = 'completed';
     setHandler(tokenMintsResult, () => result);
     return result;
   } catch (error: unknown) {
-    currentStatus = `FAILED: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    currentStatus = `failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
     throw error;
   }
 }

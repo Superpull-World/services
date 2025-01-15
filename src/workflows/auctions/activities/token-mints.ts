@@ -1,6 +1,5 @@
-import { PublicKey } from '@solana/web3.js';
 import { SolanaService } from '../../../services/solana';
-import { AUCTION_MINT } from '../../../config/env';
+import { AUCTION_MINTS } from '../../../config/env';
 
 export interface TokenMetadata {
   mint: string;
@@ -17,23 +16,45 @@ export interface GetAcceptedTokenMintsOutput {
 export async function getAcceptedTokenMints(): Promise<GetAcceptedTokenMintsOutput> {
   console.log('🔍 Fetching accepted token mints');
   try {
-    // For now, we only have one accepted token mint
-    const tokenMint = new PublicKey(AUCTION_MINT);
-    console.log(`📝 Token mint: ${tokenMint.toBase58()}`);
-
-    // Get token metadata using SolanaService
     const solanaService = new SolanaService();
-    const metadata = await solanaService.getTokenMetadata(tokenMint);
-    console.log('✅ Token metadata fetched successfully:', metadata);
+    const tokenMints: TokenMetadata[] = [];
 
-    return {
-      tokenMints: [
-        {
-          mint: tokenMint.toBase58(),
-          ...metadata,
-        },
-      ],
-    };
+    // Fetch metadata for all accepted token mints
+    for (const tokenInfo of AUCTION_MINTS) {
+      console.log(
+        `📝 Fetching metadata for token mint: ${tokenInfo.mint.toBase58()}`,
+      );
+      try {
+        const metadata = await solanaService.getTokenMetadata(tokenInfo.mint);
+        tokenMints.push({
+          mint: tokenInfo.mint.toBase58(),
+          name: metadata.name || tokenInfo.name,
+          symbol: metadata.symbol || tokenInfo.symbol,
+          uri: metadata.uri || '',
+          decimals: metadata.decimals,
+        });
+        console.log('✅ Token metadata fetched successfully');
+      } catch (error) {
+        console.error(
+          `❌ Error fetching metadata for ${tokenInfo.mint.toBase58()}`,
+          error,
+        );
+        // On error, use the stored token info
+        tokenMints.push({
+          mint: tokenInfo.mint.toBase58(),
+          name: tokenInfo.name,
+          symbol: tokenInfo.symbol,
+          uri: '',
+          decimals: 9, // Default to 9 decimals
+        });
+      }
+    }
+
+    if (tokenMints.length === 0) {
+      throw new Error('No token metadata could be fetched');
+    }
+
+    return { tokenMints };
   } catch (error) {
     console.error('❌ Error fetching token metadata:', error);
     throw error;
