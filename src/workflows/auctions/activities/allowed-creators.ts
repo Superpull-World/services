@@ -9,8 +9,8 @@ export async function getAllowedCreators(): Promise<GetAllowedCreatorsOutput> {
   const creatorAddresses = allowedCreatorsStr
     .split(',')
     .filter((addr) => addr.trim() !== '');
-  
+
   return {
     creators: creatorAddresses.map((addr) => new PublicKey(addr.trim())),
   };
-} 
+}

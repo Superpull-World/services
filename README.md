@@ -114,15 +114,49 @@ COLLECTION_MINT=<collection-nft-mint>
 
 ## Available Workflows
 
-### Create Item Workflow
-- **Name**: `createItemWorkflow`
-- **Purpose**: Creates a new NFT listing
+### Create Auction Workflow
+- **Name**: `createAuction`
+- **Purpose**: Creates a new NFT auction
 - **Activities**:
-  1. Validate input data
-  2. Upload metadata to IPFS
-  3. Mint NFT on Solana
-  4. Initialize bonding curve
-  5. Create marketplace listing
+  1. Verify JWT credentials
+  2. Upload metadata
+  3. Create Merkle tree
+  4. Initialize auction
+  5. Set up bonding curve
+
+### Place Bid Workflow
+- **Name**: `placeBid`
+- **Purpose**: Places a bid on an auction
+- **Activities**:
+  1. Verify bid amount
+  2. Create transaction
+  3. Get user signature
+  4. Submit to blockchain
+  5. Monitor transaction status
+
+### Authentication Workflow
+- **Name**: `auth`
+- **Purpose**: Authenticates users with wallet signatures
+- **Activities**:
+  1. Generate nonce
+  2. Verify signature
+  3. Generate JWT token
+
+### Token Management Workflows
+- **Name**: `getAcceptedTokenMints`
+- **Purpose**: Retrieves list of accepted tokens
+- **Activities**:
+  1. Fetch token list
+  2. Get metadata
+  3. Cache results
+
+### Auction List Workflow
+- **Name**: `getAuctions`
+- **Purpose**: Retrieves list of auctions with pagination
+- **Activities**:
+  1. Query auctions
+  2. Fetch token metadata
+  3. Return paginated results
 
 ## Development
 
@@ -142,7 +176,7 @@ npm test
 ### Environment Variables
 ```env
 # Server Configuration
-PORT=3000
+PORT=5001
 NODE_ENV=development
 
 # Temporal Configuration
@@ -152,6 +186,12 @@ TEMPORAL_NAMESPACE=default
 # Solana Configuration
 SOLANA_NETWORK=devnet
 SOLANA_RPC_URL=https://api.devnet.solana.com
+SOLANA_PRIVATE_KEY=<your-private-key>
+COLLECTION_MINT=<collection-nft-mint>
+
+# Security
+JWT_SECRET=<your-jwt-secret>
+ALLOWED_AUCTION_CREATORS=<comma-separated-addresses>
 
 # Storage Configuration
 IPFS_GATEWAY=https://ipfs.io
@@ -159,36 +199,56 @@ IPFS_GATEWAY=https://ipfs.io
 
 ## Running the Application
 
-### Development Mode
+### Development Setup
+
+1. **Install Temporal CLI** (if not already installed)
+   ```bash
+   # On macOS
+   brew install temporal
+
+   # On other platforms, visit: https://learn.temporal.io/getting_started/typescript/dev_environment/
+   ```
+
+2. **Start Temporal Development Server**
+   ```bash
+   # Start in a separate terminal and keep it running
+   temporal server start-dev
+   ```
+   The Temporal Web UI will be available at `http://localhost:8233`
+
+3. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
+
+4. **Start the Services**
+   ```bash
+   # Start all services using Docker Compose
+   docker-compose up -d
+   ```
+
+This will start:
+- API service (available at `http://localhost:5001`)
+- Auth worker (handles authentication workflows)
+- Auction worker (handles auction and bidding workflows)
+
+All services will automatically connect to your local Temporal server.
+
+### Development Mode (without Docker)
 ```bash
 npm run dev
 ```
 
-### Production Mode
+### Production Mode (without Docker)
 ```bash
 npm run build
 npm start
 ```
 
-### Docker Deployment
-```bash
-docker build -t superpull-services .
-docker run -p 3000:3000 superpull-services
-```
-
-## Testing
-
-```bash
-# Run unit tests
-npm run test
-
-# Run integration tests
-npm run test:integration
-```
-
 ## Monitoring and Logging
 
-- Temporal Web UI: Available at `http://localhost:8080` when running locally
+- Temporal Web UI: Available at `http://localhost:8233` when running locally
 - Application logs: Uses Winston for structured logging
 - Metrics: Prometheus-compatible metrics exposed at `/metrics`
 

@@ -1,8 +1,8 @@
 import { PublicKey } from '@solana/web3.js';
 import { log } from '@temporalio/activity';
 
-import { SolanaService } from '../../services/solana';
-import { JWTPayload, verifyJWT } from '../../services/jwt';
+import { SolanaService } from '../../../services/solana';
+import { JWTPayload, verifyJWT } from '../../../services/jwt';
 
 export interface CreateAuctionInput {
   name: string;
@@ -52,20 +52,6 @@ export interface JWTVerificationOutput {
   isValid: boolean;
   message?: string;
   payload?: JWTPayload;
-}
-
-export interface PlaceBidInput {
-  auctionAddress: string;
-  bidderAddress: string;
-  bidAmount: number;
-  jwt: string;
-}
-
-export interface PlaceBidOutput {
-  transactionHash: string;
-  status: 'success' | 'failed';
-  message: string;
-  bidAmount: number;
 }
 
 export async function verifyUserJWT(

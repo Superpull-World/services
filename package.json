@@ -10,12 +10,10 @@
     "lint:fix": "eslint \"src/**/*.{ts,js}\" --fix",
     "dev": "tsc -w & nodemon ./src/index.ts",
     "dev:sample-worker": "nodemon ./src/worker/sample.ts",
-    "dev:items-worker": "nodemon ./src/worker/items.ts",
     "dev:auth-worker": "nodemon ./src/worker/auth.ts",
     "dev:auction-worker": "nodemon ./src/worker/auction.ts",
     "start": "node ./dist/index.js",
     "start:sample-worker": "node ./dist/worker/sample.js",
-    "start:items-worker": "node ./dist/worker/items.js",
     "start:auth-worker": "node ./dist/worker/auth.js",
     "start:auction-worker": "node ./dist/worker/auction.js"
   },

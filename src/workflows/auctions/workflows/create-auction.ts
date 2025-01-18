@@ -6,8 +6,8 @@ import type {
   createAuctionCollection,
   initializeAuction,
   verifyUserJWT,
-} from './activities';
-import { WorkflowEntry } from '../registry';
+} from '../activities/create-auction';
+import { WorkflowEntry } from '../../registry';
 
 const {
   createAuctionCollection: createCollection,
@@ -96,7 +96,7 @@ export const createAuctionWorkflowFunction = async (
     };
   }
 
-  log.info('Item workflow completed successfully');
+  log.info('Auction workflow completed successfully');
   setHandler(status, () => 'completed');
   return {
     collectionMint: collectionResult.collectionMint,
@@ -112,7 +112,7 @@ export const createAuctionWorkflowFunction = async (
 
 export const createAuctionWorkflow: CreateAuctionWorkflow = {
   workflow: createAuctionWorkflowFunction,
-  taskQueue: 'item-task-queue',
+  taskQueue: 'auction-task-queue',
   queries: {
     status,
   },

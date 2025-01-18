@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # Main API Service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: npm run start
+    ports:
+      - "${PORT:-5001}:5000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - TEMPORAL_ADDRESS=host.docker.internal:7233
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - superpull-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Auth Worker
+  auth-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: npm run start:auth-worker
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - TEMPORAL_ADDRESS=host.docker.internal:7233
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - superpull-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Auction Worker
+  auction-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: npm run start:auction-worker
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - TEMPORAL_ADDRESS=host.docker.internal:7233
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - superpull-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  superpull-network:
+    driver: bridge 

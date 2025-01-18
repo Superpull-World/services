@@ -4,11 +4,11 @@ import {
   SampleWorkflowOutput,
   sampleWorkflow,
 } from './sample/workflows';
-import { createAuctionWorkflow } from './items/workflows';
+import { createAuctionWorkflow } from './auctions/workflows/create-auction';
 import type {
   CreateAuctionInput,
   CreateAuctionOutput,
-} from './items/activities';
+} from './auctions/activities/create-auction';
 import { authWorkflow, AuthState } from './auth/workflows';
 import {
   getAuctionsWorkflow,
