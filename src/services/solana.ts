@@ -154,9 +154,12 @@ export class SolanaService {
         }
       } catch (error) {
         // Log the error but don't throw, allow the service to continue without collection support.
-        log.warn('Failed to initialize collection. Service will continue without collection support.', {
-          error: error instanceof Error ? error.message : String(error),
-        });
+        log.warn(
+          'Failed to initialize collection. Service will continue without collection support.',
+          {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
       }
     } catch (error) {
       // Log any unexpected errors but don't throw
@@ -652,19 +655,28 @@ export class SolanaService {
     lastValidBlockHeight?: number;
   }> {
     try {
-      log.info('Creating bid transaction', {
+      log.info('Starting bid transaction creation', {
         auctionAddress: input.auctionAddress,
         bidderAddress: input.bidderAddress,
         bidAmount: input.bidAmount,
       });
+
       // Get the auction details
+      log.info('Fetching auction details');
       const auction = await this.getAuctionDetails(input.auctionAddress);
       if (!auction) {
+        log.warn('Auction not found', {
+          auctionAddress: input.auctionAddress,
+        });
         return {
           success: false,
           message: 'Auction not found',
         };
       }
+      log.info('Auction details fetched', {
+        currentPrice: auction.currentPrice,
+        auctionState: auction.state,
+      });
 
       // Create a durable nonce transaction
       log.info('Creating durable nonce transaction');
@@ -672,6 +684,11 @@ export class SolanaService {
         await this.createDurableNonceTransaction(
           new PublicKey(input.bidderAddress),
           async (umi, payer) => {
+            log.info('Creating bid instruction', {
+              bidderPubkey: input.bidderAddress,
+              payerPubkey: payer.publicKey.toString(),
+              bidAmount: input.bidAmount,
+            });
             const { instruction } = await this.anchorClient.placeBid(
               new PublicKey(input.auctionAddress),
               new PublicKey(input.bidderAddress),
@@ -681,14 +698,22 @@ export class SolanaService {
               true,
             );
             if (!instruction) {
+              log.error('Failed to get bid instruction');
               throw new Error('Failed to get bid instruction');
             }
-            log.info('Got bid instruction', {
-              instruction: instruction.toString(),
+            log.info('Bid instruction created successfully', {
+              programId: instruction.programId.toString(),
+              keys: instruction.keys.map((k) => ({
+                pubkey: k.pubkey.toString(),
+                isSigner: k.isSigner,
+                isWritable: k.isWritable,
+              })),
             });
             return instruction;
           },
         );
+
+      log.info('Signing transaction with payer');
       transaction.sign(this.payer);
 
       // Serialize and encode the transaction
@@ -701,15 +726,35 @@ export class SolanaService {
         'base64',
       );
 
+      log.info('Transaction created successfully', {
+        transactionLength: serializedTransaction.length,
+        lastValidBlockHeight,
+      });
+
       return {
         success: true,
         transaction: encodedTransaction,
         lastValidBlockHeight,
       };
     } catch (error) {
+      log.error('Error in createBidTransaction:', {
+        error:
+          error instanceof Error
+            ? {
+                message: error.message,
+                stack: error.stack,
+                name: error.name,
+              }
+            : String(error),
+        input: {
+          auctionAddress: input.auctionAddress,
+          bidderAddress: input.bidderAddress,
+          bidAmount: input.bidAmount,
+        },
+      });
       return {
         success: false,
-        message: (error as Error).message,
+        message: error instanceof Error ? error.message : String(error),
       };
     }
   }
@@ -720,21 +765,42 @@ export class SolanaService {
     signature?: string;
   }> {
     try {
+      log.info('Starting to submit signed bid transaction');
+
       // Decode the signed transaction
+      log.info('Decoding signed transaction');
       const decodedTransaction = Buffer.from(signedTransaction, 'base64');
       const transaction = Transaction.from(decodedTransaction);
 
+      log.info('Transaction decoded successfully', {
+        numInstructions: transaction.instructions.length,
+        signers: transaction.signatures.map((s) => s.publicKey.toString()),
+      });
+
       // Submit the transaction
+      log.info('Submitting transaction to network');
       const signature = await this.sendTransaction(transaction);
+
+      log.info('Transaction submitted successfully', { signature });
 
       return {
         success: true,
         signature,
       };
     } catch (error) {
+      log.error('Error in submitSignedBidTransaction:', {
+        error:
+          error instanceof Error
+            ? {
+                message: error.message,
+                stack: error.stack,
+                name: error.name,
+              }
+            : String(error),
+      });
       return {
         success: false,
-        message: (error as Error).message,
+        message: error instanceof Error ? error.message : String(error),
       };
     }
   }

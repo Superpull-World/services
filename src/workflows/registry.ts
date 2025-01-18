@@ -15,6 +15,7 @@ import {
   getAuctionDetailsWorkflow,
 } from './auctions/workflows/details';
 import { getAcceptedTokenMintsWorkflow } from './auctions/workflows/token-mints';
+import { getAllowedCreatorsWorkflow } from './auctions/workflows/allowed-creators';
 import type {
   GetAuctionsInput,
   GetAuctionsOutput,
@@ -28,12 +29,14 @@ import type {
   PlaceBidOutput,
   SubmitSignedBidOutput,
 } from './auctions';
+import type { GetAllowedCreatorsOutput } from './auctions/activities/allowed-creators';
 
 export type QueryResult =
   | string
   | GetAuctionsOutput
   | GetAuctionDetailsOutput
   | GetAcceptedTokenMintsOutput
+  | GetAllowedCreatorsOutput
   | AuthState
   | null;
 
@@ -86,6 +89,14 @@ interface WorkflowRegistry {
       tokenMintsResult: GetAcceptedTokenMintsOutput | null;
     }
   >;
+  getAllowedCreators: WorkflowEntry<
+    void,
+    GetAllowedCreatorsOutput,
+    {
+      status: string;
+      creatorsResult: GetAllowedCreatorsOutput | null;
+    }
+  >;
 }
 
 export const workflowRegistry: WorkflowRegistry = {
@@ -96,4 +107,5 @@ export const workflowRegistry: WorkflowRegistry = {
   getAuctions: getAuctionsWorkflow,
   getAuctionDetails: getAuctionDetailsWorkflow,
   getAcceptedTokenMints: getAcceptedTokenMintsWorkflow,
+  getAllowedCreators: getAllowedCreatorsWorkflow,
 };
