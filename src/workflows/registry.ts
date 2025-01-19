@@ -22,6 +22,7 @@ import type {
   GetAuctionDetailsInput,
   GetAuctionDetailsOutput,
   GetAcceptedTokenMintsOutput,
+  GetAcceptedTokenMintsInput,
 } from './auctions';
 import { placeBidWorkflow } from './auctions/workflows/place-bid';
 import type {
@@ -82,7 +83,7 @@ interface WorkflowRegistry {
     }
   >;
   getAcceptedTokenMints: WorkflowEntry<
-    void,
+    GetAcceptedTokenMintsInput,
     GetAcceptedTokenMintsOutput,
     {
       status: string;

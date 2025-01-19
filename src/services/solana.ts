@@ -43,7 +43,7 @@ import bs58 from 'bs58';
 import { AUCTION_MINTS } from '../config/env';
 import { AnchorClient } from './anchor-client';
 import { SuperpullProgram } from '../types/superpull_program';
-import { getMint } from '@solana/spl-token';
+import { getMint, getAccount } from '@solana/spl-token';
 
 // Constants
 const MAX_DEPTH = 14;
@@ -845,6 +845,27 @@ export class SolanaService {
         decimals: mintInfo.decimals,
         supply: mintInfo.supply.toString(),
       };
+    }
+  }
+
+  public async getTokenBalance(
+    tokenMint: PublicKey,
+    walletAddress: PublicKey,
+  ): Promise<string> {
+    try {
+      const tokenAccount = await getAccount(
+        this.connection,
+        await this.connection
+          .getTokenAccountsByOwner(walletAddress, {
+            mint: tokenMint,
+          })
+          .then((accounts) => accounts.value[0]?.pubkey),
+        'confirmed',
+      );
+      return tokenAccount.amount.toString();
+    } catch {
+      log.debug(`No token account found for ${tokenMint.toBase58()}`);
+      return '0';
     }
   }
 }

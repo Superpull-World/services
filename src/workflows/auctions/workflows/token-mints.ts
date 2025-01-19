@@ -1,16 +1,21 @@
 import { proxyActivities, defineQuery, setHandler } from '@temporalio/workflow';
 import type {
   GetAcceptedTokenMintsOutput,
+  GetAcceptedTokenMintsInput,
   getAcceptedTokenMints,
+  validateJwt,
 } from '../activities';
 import { WorkflowEntry } from '../../registry';
 
-const { getAcceptedTokenMints: getAcceptedTokenMintsActivity } =
-  proxyActivities<{
-    getAcceptedTokenMints: typeof getAcceptedTokenMints;
-  }>({
-    startToCloseTimeout: '30 seconds',
-  });
+const {
+  getAcceptedTokenMints: getAcceptedTokenMintsActivity,
+  validateJwt: validateJwtActivity,
+} = proxyActivities<{
+  getAcceptedTokenMints: typeof getAcceptedTokenMints;
+  validateJwt: typeof validateJwt;
+}>({
+  startToCloseTimeout: '30 seconds',
+});
 
 export const status = defineQuery<string>('status');
 export const tokenMintsResult = defineQuery<GetAcceptedTokenMintsOutput | null>(
@@ -18,7 +23,7 @@ export const tokenMintsResult = defineQuery<GetAcceptedTokenMintsOutput | null>(
 );
 
 export type GetAcceptedTokenMintsWorkflow = WorkflowEntry<
-  void,
+  GetAcceptedTokenMintsInput,
   GetAcceptedTokenMintsOutput,
   {
     status: string;
@@ -26,14 +31,19 @@ export type GetAcceptedTokenMintsWorkflow = WorkflowEntry<
   }
 >;
 
-export async function getAcceptedTokenMintsWorkflowFunction(): Promise<GetAcceptedTokenMintsOutput> {
+export async function getAcceptedTokenMintsWorkflowFunction(
+  input: GetAcceptedTokenMintsInput,
+): Promise<GetAcceptedTokenMintsOutput> {
   let currentStatus = 'started';
   setHandler(status, () => currentStatus);
   setHandler(tokenMintsResult, () => null);
 
   try {
+    currentStatus = 'validating_jwt';
+    await validateJwtActivity(input);
+
     currentStatus = 'fetching_token_mints';
-    const result = await getAcceptedTokenMintsActivity();
+    const result = await getAcceptedTokenMintsActivity(input);
 
     currentStatus = 'completed';
     setHandler(tokenMintsResult, () => result);
