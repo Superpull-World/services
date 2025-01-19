@@ -14,3 +14,7 @@ export {
   status as createAuctionStatus,
   createAuctionWorkflowFunction,
 } from './create-auction';
+export {
+  status as allowedCreatorsStatus,
+  getAllowedCreatorsWorkflowFunction,
+} from './allowed-creators';
