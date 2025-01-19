@@ -146,7 +146,33 @@ export type SuperpullProgram = {
       "accounts": [
         {
           "name": "auction",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction.authority",
+                "account": "auctionState"
+              },
+              {
+                "kind": "account",
+                "path": "auction.collection_mint",
+                "account": "auctionState"
+              }
+            ]
+          }
         },
         {
           "name": "bid",
@@ -207,9 +233,6 @@ export type SuperpullProgram = {
         {
           "name": "collectionEdition",
           "writable": true
-        },
-        {
-          "name": "collectionAuthorityRecordPda"
         },
         {
           "name": "merkleTree",
@@ -575,81 +598,86 @@ export type SuperpullProgram = {
     },
     {
       "code": 6010,
+      "name": "invalidTokenMint",
+      "msg": "Token account mint does not match auction token mint"
+    },
+    {
+      "code": 6011,
       "name": "unauthorizedWithdraw",
       "msg": "Unauthorized withdrawal attempt"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "notGraduated",
       "msg": "Auction must be graduated to withdraw funds"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "noFundsToWithdraw",
       "msg": "No funds available to withdraw"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "insufficientRentBalance",
       "msg": "Cannot withdraw below rent-exempt balance"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "excessiveWithdrawalAmount",
       "msg": "Withdrawal amount exceeds available balance"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "alreadyGraduated",
       "msg": "Auction has already graduated"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "minimumItemsNotReached",
       "msg": "Auction has not reached minimum items"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "invalidAuctionState",
       "msg": "Invalid auction state"
     },
     {
-      "code": 6018,
+      "code": 6019,
       "name": "invalidAuthority",
       "msg": "Invalid authority provided"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "invalidAccountOwner",
       "msg": "Invalid account owner"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "notRentExempt",
       "msg": "Account is not rent exempt"
     },
     {
-      "code": 6021,
+      "code": 6022,
       "name": "invalidDeadline",
       "msg": "Invalid deadline"
     },
     {
-      "code": 6022,
+      "code": 6023,
       "name": "auctionExpired",
       "msg": "Auction expired"
     },
     {
-      "code": 6023,
+      "code": 6024,
       "name": "invalidRefundAttempt",
       "msg": "Cannot refund when auction is graduated or deadline not reached"
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "noFundsToRefund",
       "msg": "No bid amount to refund"
     },
     {
-      "code": 6025,
+      "code": 6026,
       "name": "nftBurnError",
       "msg": "Failed to burn NFT during refund"
     }
@@ -846,6 +874,10 @@ export type SuperpullProgram = {
           },
           {
             "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "count",
             "type": "u8"
           }
         ]

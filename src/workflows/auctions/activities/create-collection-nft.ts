@@ -1,0 +1,54 @@
+import { PublicKey } from '@solana/web3.js';
+import { log } from '@temporalio/activity';
+import { SolanaService } from '../../../services/solana';
+
+export interface CreateCollectionNFTInput {
+  name: string;
+  description: string;
+  ownerAddress: string;
+}
+
+export interface CreateCollectionNFTOutput {
+  collectionMint: string;
+  transactionHash: string;
+  status: 'success' | 'failed';
+  message: string;
+}
+
+export async function createCollectionNFT(
+  input: CreateCollectionNFTInput,
+): Promise<CreateCollectionNFTOutput> {
+  try {
+    const logData = {
+      input: {
+        name: input.name,
+        ownerAddress: input.ownerAddress,
+      },
+    };
+    log.info('Creating collection NFT', logData);
+    const solanaService = SolanaService.getInstance();
+
+    const result = await solanaService.createNft(
+      input.name,
+      input.description,
+      new PublicKey(input.ownerAddress),
+    );
+
+    return {
+      collectionMint: result.collectionMint.toString(),
+      transactionHash: result.txId,
+      status: 'success',
+      message: 'Collection NFT created successfully',
+    };
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
+    log.error('Error creating collection NFT:', { error: errorMessage });
+    return {
+      collectionMint: '',
+      transactionHash: '',
+      status: 'failed',
+      message: errorMessage,
+    };
+  }
+} 

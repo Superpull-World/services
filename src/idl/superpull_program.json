@@ -140,7 +140,33 @@
       "accounts": [
         {
           "name": "auction",
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  99,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "auction.authority",
+                "account": "AuctionState"
+              },
+              {
+                "kind": "account",
+                "path": "auction.collection_mint",
+                "account": "AuctionState"
+              }
+            ]
+          }
         },
         {
           "name": "bid",
@@ -201,9 +227,6 @@
         {
           "name": "collection_edition",
           "writable": true
-        },
-        {
-          "name": "collection_authority_record_pda"
         },
         {
           "name": "merkle_tree",
@@ -569,81 +592,86 @@
     },
     {
       "code": 6010,
+      "name": "InvalidTokenMint",
+      "msg": "Token account mint does not match auction token mint"
+    },
+    {
+      "code": 6011,
       "name": "UnauthorizedWithdraw",
       "msg": "Unauthorized withdrawal attempt"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "NotGraduated",
       "msg": "Auction must be graduated to withdraw funds"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "NoFundsToWithdraw",
       "msg": "No funds available to withdraw"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "InsufficientRentBalance",
       "msg": "Cannot withdraw below rent-exempt balance"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "ExcessiveWithdrawalAmount",
       "msg": "Withdrawal amount exceeds available balance"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "AlreadyGraduated",
       "msg": "Auction has already graduated"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "MinimumItemsNotReached",
       "msg": "Auction has not reached minimum items"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "InvalidAuctionState",
       "msg": "Invalid auction state"
     },
     {
-      "code": 6018,
+      "code": 6019,
       "name": "InvalidAuthority",
       "msg": "Invalid authority provided"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "InvalidAccountOwner",
       "msg": "Invalid account owner"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "NotRentExempt",
       "msg": "Account is not rent exempt"
     },
     {
-      "code": 6021,
+      "code": 6022,
       "name": "InvalidDeadline",
       "msg": "Invalid deadline"
     },
     {
-      "code": 6022,
+      "code": 6023,
       "name": "AuctionExpired",
       "msg": "Auction expired"
     },
     {
-      "code": 6023,
+      "code": 6024,
       "name": "InvalidRefundAttempt",
       "msg": "Cannot refund when auction is graduated or deadline not reached"
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "NoFundsToRefund",
       "msg": "No bid amount to refund"
     },
     {
-      "code": 6025,
+      "code": 6026,
       "name": "NftBurnError",
       "msg": "Failed to burn NFT during refund"
     }
@@ -840,6 +868,10 @@
           },
           {
             "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "count",
             "type": "u8"
           }
         ]

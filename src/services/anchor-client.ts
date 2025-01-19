@@ -21,7 +21,6 @@ import { Umi } from '@metaplex-foundation/umi';
 import {
   findMetadataPda,
   findMasterEditionPda,
-  findCollectionAuthorityRecordPda,
   mplTokenMetadata,
 } from '@metaplex-foundation/mpl-token-metadata';
 import {
@@ -206,13 +205,6 @@ export class AnchorClient {
     const collectionEdition = findMasterEditionPda(this.umi, {
       mint: fromWeb3JsPublicKey(auctionState.collectionMint),
     });
-    const collectionAuthorityRecordPda = findCollectionAuthorityRecordPda(
-      this.umi,
-      {
-        mint: fromWeb3JsPublicKey(auctionState.collectionMint),
-        collectionAuthority: fromWeb3JsPublicKey(auction),
-      },
-    );
     const bubblegumSigner = PublicKey.findProgramAddressSync(
       [Buffer.from('collection_cpi', 'utf-8')],
       BUBBLEGUM_PROGRAM_ID,
@@ -227,7 +219,6 @@ export class AnchorClient {
       collectionMint: auctionState.collectionMint.toString(),
       collectionMetadata: collectionMetadata.toString(),
       collectionEdition: collectionEdition.toString(),
-      collectionAuthorityRecordPda: collectionAuthorityRecordPda.toString(),
       tokenMint: auctionState.tokenMint.toString(),
       authority: auctionState.authority.toString(),
       bubblegumSigner: bubblegumSigner.toString(),
@@ -247,7 +238,6 @@ export class AnchorClient {
       collectionMint: auctionState.collectionMint,
       collectionMetadata: collectionMetadata[0].toString(),
       collectionEdition: collectionEdition[0].toString(),
-      collectionAuthorityRecordPda: collectionAuthorityRecordPda[0].toString(),
       merkleTree: auctionState.merkleTree,
       treeConfig: toWeb3JsPublicKey(treeConfig.publicKey),
       treeCreator: payer.publicKey,
@@ -277,71 +267,37 @@ export class AnchorClient {
     return { signature };
   }
 
-  private async findMetadataAddress(mint: PublicKey): Promise<PublicKey> {
-    log.info('Finding metadata address', {
-      mint: mint.toString(),
-    });
-    const pda = findMetadataPda(this.umi, {
-      mint: fromWeb3JsPublicKey(mint),
-    });
-    log.info('Metadata address found', {
-      pda: pda.toString(),
-    });
-    return new PublicKey(pda.toString());
-  }
-
-  private async findEditionAddress(mint: PublicKey): Promise<PublicKey> {
-    log.info('Finding edition address', {
-      mint: mint.toString(),
-    });
-    const pda = findMasterEditionPda(this.umi, {
-      mint: fromWeb3JsPublicKey(mint),
-    });
-    log.info('Edition address found', {
-      pda: pda.toString(),
-    });
-    return new PublicKey(pda.toString());
-  }
-
-  private async findCollectionAuthorityRecordPda(
-    mint: PublicKey,
-    authority: PublicKey,
-  ): Promise<PublicKey> {
-    log.info('Finding collection authority record PDA', {
-      mint: mint.toString(),
-      authority: authority.toString(),
-    });
-    const pda = findCollectionAuthorityRecordPda(this.umi, {
-      mint: fromWeb3JsPublicKey(mint),
-      collectionAuthority: fromWeb3JsPublicKey(authority),
-    });
-    log.info('Collection authority record PDA found', {
-      pda: pda.toString(),
-    });
-    return new PublicKey(pda.toString());
-  }
-
   async getAuctionState(auctionAddress: PublicKey) {
-    log.debug('Getting auction state', {
+    log.info('Getting auction state', {
       auctionAddress: auctionAddress.toString(),
     });
 
-    const state = await this.program.account.auctionState.fetch(auctionAddress);
+    try {
+      const state = await this.program.account.auctionState.fetch(
+        auctionAddress,
+        'confirmed',
+      );
 
-    log.debug('Auction state retrieved', {
-      auctionAddress: auctionAddress.toString(),
-      state: {
-        authority: state.authority.toString(),
-        merkleTree: state.merkleTree.toString(),
-        basePrice: state.basePrice.toString(),
-        collectionMint: state.collectionMint.toString(),
-        tokenMint: state.tokenMint.toString(),
-        priceIncrement: state.priceIncrement.toString(),
-        maxSupply: state.maxSupply.toString(),
-        currentSupply: state.currentSupply.toString(),
-      },
-    });
+      log.info('Auction state retrieved', {
+        auctionAddress: auctionAddress.toString(),
+        state: {
+          authority: state.authority.toString(),
+          merkleTree: state.merkleTree.toString(),
+          basePrice: state.basePrice.toString(),
+          collectionMint: state.collectionMint.toString(),
+          tokenMint: state.tokenMint.toString(),
+          priceIncrement: state.priceIncrement.toString(),
+          maxSupply: state.maxSupply.toString(),
+          currentSupply: state.currentSupply.toString(),
+        },
+      });
 
-    return state;
+      return state;
+    } catch (error) {
+      log.error('Error fetching auction state', {
+        error,
+      });
+      throw error;
+    }
   }
 }

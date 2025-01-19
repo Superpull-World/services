@@ -4,6 +4,8 @@ import {
   setHandler,
   defineSignal,
   condition,
+  getExternalWorkflowHandle,
+  log,
 } from '@temporalio/workflow';
 import type {
   PlaceBidInput,
@@ -95,6 +97,15 @@ export async function placeBidWorkflowFunction(
     submitResult = await submitSignedBidActivity({
       signedTransaction,
     });
+
+    const monitorAuction = getExternalWorkflowHandle(
+      `monitor-auction-${input.auctionAddress}`,
+    );
+    try {
+      await monitorAuction.signal('refreshAuction');
+    } catch (error) {
+      log.error('Error refreshing auction', { error });
+    }
 
     setHandler(status, () => (submitResult?.success ? 'completed' : 'failed'));
     return (

@@ -1,36 +1,62 @@
 import { QueryDefinition } from '@temporalio/workflow';
+import { Duration } from '@temporalio/common';
 import {
   SampleWorkflowInput,
   SampleWorkflowOutput,
-  sampleWorkflow,
+  sampleWorkflowFunction,
 } from './sample/workflows';
-import { createAuctionWorkflow } from './auctions/workflows/create-auction';
+import { createAuctionWorkflowFunction } from './auctions/workflows/create-auction';
 import type {
   CreateAuctionInput,
   CreateAuctionOutput,
 } from './auctions/activities/create-auction';
-import { authWorkflow, AuthState } from './auth/workflows';
+import { auth, AuthState, getState } from './auth/workflows';
 import {
-  getAuctionsWorkflow,
-  getAuctionDetailsWorkflow,
+  getAuctionsWorkflowFunction,
+  getAuctionDetailsWorkflowFunction,
+  status as getAuctionsStatus,
+  auctionsResult as getAuctionsResult,
+  status as getAuctionDetailsStatus,
+  detailsResult as getAuctionDetailsResult,
 } from './auctions/workflows/details';
-import { getAcceptedTokenMintsWorkflow } from './auctions/workflows/token-mints';
-import { getAllowedCreatorsWorkflow } from './auctions/workflows/allowed-creators';
-import type {
-  GetAuctionsInput,
-  GetAuctionsOutput,
-  GetAuctionDetailsInput,
-  GetAuctionDetailsOutput,
-  GetAcceptedTokenMintsOutput,
-  GetAcceptedTokenMintsInput,
+import {
+  getAcceptedTokenMintsWorkflowFunction,
+  status as getAcceptedTokenMintsStatus,
+  tokenMintsResult as getAcceptedTokenMintsResult,
+} from './auctions/workflows/token-mints';
+import {
+  getAllowedCreatorsWorkflowFunction,
+  status as getAllowedCreatorsStatus,
+  creatorsResult as getAllowedCreatorsResult,
+} from './auctions/workflows/allowed-creators';
+import {
+  type GetAuctionsInput,
+  type GetAuctionsOutput,
+  type GetAuctionDetailsInput,
+  type GetAuctionDetailsOutput,
+  type GetAcceptedTokenMintsOutput,
+  type GetAcceptedTokenMintsInput,
+  type AuctionDetails,
+  createAuctionStatus,
 } from './auctions';
-import { placeBidWorkflow } from './auctions/workflows/place-bid';
+import {
+  placeBidWorkflowFunction,
+  status as placeBidStatus,
+  unsignedTransaction as placeBidUnsignedTransaction,
+  submissionResult as placeBidSubmissionResult,
+} from './auctions/workflows/place-bid';
 import type {
   PlaceBidInput,
   PlaceBidOutput,
   SubmitSignedBidOutput,
 } from './auctions';
 import type { GetAllowedCreatorsOutput } from './auctions/activities/allowed-creators';
+import {
+  monitorAuctionWorkflowFunction,
+  status as monitorAuctionStatus,
+  monitorAuctionResult,
+  MonitorAuctionInput,
+} from './auctions/workflows/monitor-auction';
 
 export type QueryResult =
   | string
@@ -39,7 +65,20 @@ export type QueryResult =
   | GetAcceptedTokenMintsOutput
   | GetAllowedCreatorsOutput
   | AuthState
+  | SubmitSignedBidOutput
   | null;
+
+export interface WorkflowConfig {
+  workflowExecutionTimeout?: Duration;
+  workflowRunTimeout?: Duration;
+  workflowTaskTimeout?: Duration;
+  retryPolicy?: {
+    initialInterval?: Duration;
+    maximumInterval?: Duration;
+    backoffCoefficient?: number;
+    maximumAttempts?: number;
+  };
+}
 
 export interface WorkflowEntry<
   Input,
@@ -51,11 +90,18 @@ export interface WorkflowEntry<
   queries: {
     [K in keyof Queries]: QueryDefinition<Queries[K]>;
   };
+  config?: WorkflowConfig;
 }
 
 interface WorkflowRegistry {
   sampleWorkflow: WorkflowEntry<SampleWorkflowInput, SampleWorkflowOutput>;
-  createAuction: WorkflowEntry<CreateAuctionInput, CreateAuctionOutput>;
+  createAuction: WorkflowEntry<
+    CreateAuctionInput,
+    CreateAuctionOutput,
+    {
+      status: string;
+    }
+  >;
   placeBid: WorkflowEntry<
     PlaceBidInput,
     PlaceBidOutput,
@@ -98,15 +144,126 @@ interface WorkflowRegistry {
       creatorsResult: GetAllowedCreatorsOutput | null;
     }
   >;
+  monitorAuction: WorkflowEntry<
+    MonitorAuctionInput,
+    AuctionDetails | null,
+    {
+      status: string;
+      auctionResult: AuctionDetails | null;
+    }
+  >;
 }
 
+const defaultConfig: WorkflowConfig = {
+  workflowTaskTimeout: '10 seconds',
+  retryPolicy: {
+    initialInterval: '1 second',
+    maximumInterval: '10 seconds',
+    backoffCoefficient: 2,
+    maximumAttempts: 3,
+  },
+};
+
 export const workflowRegistry: WorkflowRegistry = {
-  sampleWorkflow,
-  createAuction: createAuctionWorkflow,
-  placeBid: placeBidWorkflow,
-  auth: authWorkflow,
-  getAuctions: getAuctionsWorkflow,
-  getAuctionDetails: getAuctionDetailsWorkflow,
-  getAcceptedTokenMints: getAcceptedTokenMintsWorkflow,
-  getAllowedCreators: getAllowedCreatorsWorkflow,
+  sampleWorkflow: {
+    workflow: sampleWorkflowFunction,
+    taskQueue: 'sample',
+    queries: {},
+    config: defaultConfig,
+  },
+  createAuction: {
+    workflow: createAuctionWorkflowFunction,
+    taskQueue: 'auction',
+    queries: {
+      status: createAuctionStatus,
+    },
+    config: {
+      ...defaultConfig,
+      workflowExecutionTimeout: '5 minutes',
+    },
+  },
+  placeBid: {
+    workflow: placeBidWorkflowFunction,
+    taskQueue: 'auction',
+    queries: {
+      status: placeBidStatus,
+      unsignedTransaction: placeBidUnsignedTransaction,
+      submissionResult: placeBidSubmissionResult,
+    },
+    config: {
+      ...defaultConfig,
+      workflowExecutionTimeout: '10 minutes',
+    },
+  },
+  auth: {
+    workflow: auth,
+    taskQueue: 'auth',
+    queries: {
+      getState,
+    },
+    config: {
+      ...defaultConfig,
+      workflowExecutionTimeout: '24 hours',
+    },
+  },
+  getAuctions: {
+    workflow: getAuctionsWorkflowFunction,
+    taskQueue: 'auction',
+    queries: {
+      status: getAuctionsStatus,
+      auctionsResult: getAuctionsResult,
+    },
+    config: {
+      ...defaultConfig,
+      workflowExecutionTimeout: '1 minute',
+    },
+  },
+  getAuctionDetails: {
+    workflow: getAuctionDetailsWorkflowFunction,
+    taskQueue: 'auction',
+    queries: {
+      status: getAuctionDetailsStatus,
+      detailsResult: getAuctionDetailsResult,
+    },
+    config: {
+      ...defaultConfig,
+      workflowExecutionTimeout: '1 minute',
+    },
+  },
+  getAcceptedTokenMints: {
+    workflow: getAcceptedTokenMintsWorkflowFunction,
+    taskQueue: 'auction',
+    queries: {
+      status: getAcceptedTokenMintsStatus,
+      tokenMintsResult: getAcceptedTokenMintsResult,
+    },
+    config: {
+      ...defaultConfig,
+      workflowExecutionTimeout: '1 minute',
+    },
+  },
+  getAllowedCreators: {
+    workflow: getAllowedCreatorsWorkflowFunction,
+    taskQueue: 'auction',
+    queries: {
+      status: getAllowedCreatorsStatus,
+      creatorsResult: getAllowedCreatorsResult,
+    },
+    config: {
+      ...defaultConfig,
+      workflowExecutionTimeout: '1 minute',
+    },
+  },
+  monitorAuction: {
+    workflow: monitorAuctionWorkflowFunction,
+    taskQueue: 'auction',
+    queries: {
+      status: monitorAuctionStatus,
+      auctionResult: monitorAuctionResult,
+    },
+    config: {
+      ...defaultConfig,
+      workflowExecutionTimeout: '30 minutes',
+    },
+  },
 };

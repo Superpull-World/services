@@ -14,15 +14,16 @@ import {
   createTree,
   fetchTreeConfigFromSeeds,
   mplBubblegum,
+  setTreeDelegate,
   TreeConfig,
 } from '@metaplex-foundation/mpl-bubblegum';
 import {
   createNft,
   mplTokenMetadata,
-  findCollectionAuthorityRecordPda,
-  approveCollectionAuthority,
   findMetadataPda,
   deserializeMetadata,
+  verifyCollectionV1,
+  updateV1,
 } from '@metaplex-foundation/mpl-token-metadata';
 import {
   keypairIdentity,
@@ -36,14 +37,12 @@ import {
 import {
   fromWeb3JsKeypair,
   fromWeb3JsPublicKey,
-  toWeb3JsPublicKey,
 } from '@metaplex-foundation/umi-web3js-adapters';
 import { log } from '@temporalio/activity';
-import bs58 from 'bs58';
-import { AUCTION_MINTS } from '../config/env';
 import { AnchorClient } from './anchor-client';
 import { SuperpullProgram } from '../types/superpull_program';
 import { getMint, getAccount } from '@solana/spl-token';
+import { DasApiAsset } from '@metaplex-foundation/digital-asset-standard-api';
 
 // Constants
 const MAX_DEPTH = 14;
@@ -61,6 +60,18 @@ export interface NFTMetadata {
     trait_type: string;
     value: string | number;
   }>;
+}
+
+export interface GetAuctionAddressesInput {
+  authority?: string;
+  isGraduated?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetAuctionAddressesOutput {
+  auctions: string[];
+  total: number;
 }
 
 export class SolanaService {
@@ -211,13 +222,13 @@ export class SolanaService {
     }
   }
 
-  public async createAuctionCollection(
+  public async createNft(
     name: string,
     description: string,
     authority: PublicKey,
   ): Promise<{ collectionMint: PublicKey; txId: string }> {
     try {
-      log.info('Creating auction collection', {
+      log.info('Creating collection NFT', {
         name,
         authority: authority.toString(),
       });
@@ -242,59 +253,104 @@ export class SolanaService {
       });
 
       const result = await builder.sendAndConfirm(this.umi);
-      log.info('Auction Collection mint created', {
-        collectionMint: collectionSigner.publicKey.toString(),
-      });
-
-      // Derive the auction PDA
-      const [auctionPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('auction'),
-          authority.toBuffer(),
-          toWeb3JsPublicKey(collectionSigner.publicKey).toBuffer(),
-        ],
-        this.anchorClient.program.programId,
-      );
-
-      // Set the auction PDA as the collection authority
-      const collectionAuthorityRecord = findCollectionAuthorityRecordPda(
-        this.umi,
-        {
-          mint: collectionSigner.publicKey,
-          collectionAuthority: fromWeb3JsPublicKey(auctionPda),
-        },
-      );
-
-      log.info('Setting auction collection authority', {
-        collectionMint: collectionSigner.publicKey.toString(),
-        auctionPda: auctionPda.toString(),
-        collectionAuthorityRecord: collectionAuthorityRecord.toString(),
-      });
-      const setAuthorityBuilder = approveCollectionAuthority(this.umi, {
-        mint: collectionSigner.publicKey,
-        newCollectionAuthority: fromWeb3JsPublicKey(auctionPda),
-        collectionAuthorityRecord,
-      });
-
-      await setAuthorityBuilder.sendAndConfirm(this.umi, {
-        send: {
-          skipPreflight: true,
-        },
-      });
-
-      const logMetadata = {
-        collectionMint: collectionSigner.publicKey.toString(),
-        authority: authority.toString(),
-        txId: result.signature.toString(),
-      };
-      log.info('Auction collection created', logMetadata);
 
       return {
         collectionMint: new PublicKey(collectionSigner.publicKey),
         txId: result.signature.toString(),
       };
     } catch (error) {
-      log.error('Error creating auction collection:', error as Error);
+      log.error('Error creating collection NFT:', error as Error);
+      throw error;
+    }
+  }
+
+  public async verifyCollection(
+    collectionMint: PublicKey,
+  ): Promise<{ txId: string }> {
+    try {
+      const metadata = await findMetadataPda(this.umi, {
+        mint: fromWeb3JsPublicKey(collectionMint),
+      });
+
+      log.info('Verifying collection', {
+        collectionMint: this.collectionMint.publicKey.toString(),
+        metadata: metadata.toString(),
+      });
+
+      const verifyBuilder = verifyCollectionV1(this.umi, {
+        collectionMint: fromWeb3JsPublicKey(this.collectionMint.publicKey),
+        metadata: metadata,
+      });
+      const result = await verifyBuilder.sendAndConfirm(this.umi, {
+        send: {
+          skipPreflight: true,
+        },
+      });
+
+      return {
+        txId: result.signature.toString(),
+      };
+    } catch (error) {
+      log.error('Error verifying collection:', error as Error);
+      throw error;
+    }
+  }
+
+  public async updateCollectionAuthority(
+    collectionMint: PublicKey,
+    auctionPda: PublicKey,
+    merkleTree: PublicKey,
+  ): Promise<{ txId: string }> {
+    try {
+      log.info('Updating collection authority', {
+        collectionMint: collectionMint.toString(),
+        auctionPda: auctionPda.toString(),
+      });
+
+      log.info('Delegating tree authority', {
+        merkleTree: merkleTree.toString(),
+        delegate: auctionPda.toString(),
+      });
+      const setTreeDelegateBuilder = setTreeDelegate(this.umi, {
+        newTreeDelegate: fromWeb3JsPublicKey(auctionPda),
+        merkleTree: fromWeb3JsPublicKey(merkleTree),
+      });
+      await setTreeDelegateBuilder.sendAndConfirm(this.umi, {
+        send: {
+          skipPreflight: true,
+        },
+      });
+
+      log.info('Tree authority delegated', {
+        merkleTree: merkleTree.toString(),
+        delegate: auctionPda.toString(),
+      });
+
+      log.info('Updating collection updateauthority', {
+        collectionMint: collectionMint.toString(),
+        auctionPda: auctionPda.toString(),
+      });
+
+      const updateBuilder = updateV1(this.umi, {
+        mint: fromWeb3JsPublicKey(collectionMint),
+        authority: createSignerFromKeypair(
+          this.umi,
+          fromWeb3JsKeypair(this.payer),
+        ),
+        newUpdateAuthority: fromWeb3JsPublicKey(auctionPda),
+      });
+
+      const result = await updateBuilder.sendAndConfirm(this.umi);
+
+      log.info('Collection authority updated', {
+        txId: result.signature.toString(),
+      });
+
+      return {
+        txId: result.signature.toString(),
+      };
+    } catch (error) {
+      log.error('Error updating collection authority:', error as Error);
       throw error;
     }
   }
@@ -333,197 +389,24 @@ export class SolanaService {
     }
   }
 
-  public async getAuctions(
-    filters: {
-      authority?: string;
-      isGraduated?: boolean;
-      limit?: number;
-      offset?: number;
-    } = {},
-  ): Promise<{
-    auctions: Array<{
-      address: string;
-      state: anchor.IdlAccounts<SuperpullProgram>['auctionState'];
-    }>;
-    total: number;
-  }> {
-    try {
-      log.info('Fetching auction accounts with filters', {
-        filters,
-      });
-
-      // Build memcmp filters
-      const memcmpFilters: Array<{
-        memcmp: {
-          offset: number;
-          bytes: string;
-        };
-      }> = [];
-
-      // Add discriminator filter for AuctionState
-      const discriminator = Buffer.from([252, 227, 205, 147, 72, 64, 250, 126]);
-      memcmpFilters.push({
-        memcmp: {
-          offset: 0,
-          bytes: bs58.encode(discriminator),
-        },
-      });
-
-      // Add authority filter if provided
-      if (filters.authority) {
-        memcmpFilters.push({
-          memcmp: {
-            offset: 8, // After discriminator
-            bytes: new PublicKey(filters.authority).toBase58(),
-          },
-        });
-      }
-
-      // Add isGraduated filter if provided
-      if (filters.isGraduated) {
-        // Offset calculation based on AuctionState layout:
-        // 8 (discriminator) +
-        // 32 (authority) +
-        // 32 (merkle_tree) +
-        // 32 (token_mint) +
-        // 32 (collection_mint) +
-        // 8 (base_price) +
-        // 8 (price_increment) +
-        // 8 (current_supply) +
-        // 8 (max_supply) +
-        // 8 (total_value_locked) +
-        // 8 (minimum_items) +
-        // 8 (deadline)
-        // = 192 bytes before is_graduated
-        memcmpFilters.push({
-          memcmp: {
-            offset: 192,
-            bytes: bs58.encode(Buffer.from([filters.isGraduated ? 1 : 0])),
-          },
-        });
-      }
-
-      // Fetch accounts with filters
-      const accounts = await this.connection.getProgramAccounts(
-        this.anchorClient.program.programId,
-        {
-          commitment: 'confirmed',
-          filters: memcmpFilters,
-          dataSlice: {
-            offset: 0,
-            length: 0, // We don't need the data yet, just get addresses
-          },
-        },
-      );
-
-      log.info('Found auction accounts', {
-        total: accounts.length,
-      });
-
-      // Get full account data for all accounts
-      const allAuctionDetails = await Promise.all(
-        accounts.map(async (account) => {
-          try {
-            const accountInfo = await this.connection.getAccountInfo(
-              account.pubkey,
-              'confirmed',
-            );
-            if (!accountInfo) {
-              log.warn('Account not found', {
-                account: account.pubkey.toString(),
-              });
-              return null;
-            }
-
-            // Check if account data is large enough for an auction state
-            if (accountInfo.data.length < 192) {
-              // log.warn('Account data too small to be an auction state', {
-              //   account: account.pubkey.toString(),
-              //   dataLength: accountInfo.data.length,
-              // });
-              return null;
-            }
-
-            try {
-              const state = this.anchorClient.program.coder.accounts.decode(
-                'auctionState',
-                accountInfo.data,
-              );
-              return {
-                address: account.pubkey.toString(),
-                state,
-              };
-            } catch (decodeError) {
-              log.warn('Error decoding auction account', {
-                account: account.pubkey.toString(),
-                error: decodeError,
-                dataLength: accountInfo.data.length,
-              });
-              return null;
-            }
-          } catch (error) {
-            log.warn('Error fetching account info', {
-              account: account.pubkey.toString(),
-              error,
-            });
-            return null;
-          }
-        }),
-      );
-
-      // Filter out null results and auctions with non-accepted token mints
-      const validAuctions = allAuctionDetails.filter(
-        (auction): auction is NonNullable<typeof auction> => {
-          if (!auction) return false;
-
-          // Check if the auction's token mint is in the accepted list
-          const tokenMint = auction.state.tokenMint.toString();
-          return AUCTION_MINTS.some(
-            (mint) => mint.mint.toString() === tokenMint,
-          );
-        },
-      );
-
-      // Apply pagination after filtering
-      const start = Math.max(0, filters.offset || 0);
-      const maxEnd = validAuctions.length;
-      const end = filters.limit
-        ? Math.min(start + filters.limit, maxEnd)
-        : maxEnd;
-
-      // Return empty if start is beyond bounds
-      if (start >= maxEnd) {
-        return {
-          auctions: [],
-          total: validAuctions.length,
-        };
-      }
-
-      // Get paginated results
-      const paginatedAuctions = validAuctions.slice(start, end);
-
-      return {
-        auctions: paginatedAuctions,
-        total: validAuctions.length,
-      };
-    } catch (error) {
-      log.error('Error getting auctions:', error as Error);
-      return {
-        auctions: [],
-        total: 0,
-      };
-    }
-  }
-
   public async getAuctionDetails(auctionAddress: string): Promise<{
     address: string;
     state: anchor.IdlAccounts<SuperpullProgram>['auctionState'];
     currentPrice: number;
   }> {
     try {
+      log.info('Fetching auction details', {
+        auctionAddress,
+      });
       const address = new PublicKey(auctionAddress);
       const state = await this.anchorClient.getAuctionState(address);
+      log.info('Auction state fetched', {
+        state,
+      });
       const currentPrice = await this.anchorClient.getCurrentPrice(address);
+      log.info('Current price fetched', {
+        currentPrice,
+      });
 
       return {
         address: auctionAddress,
@@ -629,7 +512,7 @@ export class SolanaService {
     try {
       const signature = await this.connection.sendRawTransaction(
         transaction.serialize(),
-        { skipPreflight: false },
+        { skipPreflight: true },
       );
       const blockhash = await this.connection.getLatestBlockhash();
 
@@ -874,6 +757,57 @@ export class SolanaService {
     } catch {
       log.debug(`No token account found for ${tokenMint.toBase58()}`);
       return '0';
+    }
+  }
+
+  public async getAuctionAddresses(): Promise<GetAuctionAddressesOutput> {
+    try {
+      const accounts = await this.getCollectionChildren(
+        this.collectionMint.publicKey,
+      );
+      const authorities = accounts.map((account) =>
+        account.authorities.map((authority) => authority.address),
+      );
+      log.info('Auction addresses fetched', {
+        auctions: authorities,
+        total: accounts.length,
+      });
+      return {
+        auctions: authorities.map((authority) => authority.toString()),
+        total: accounts.length,
+      };
+    } catch (error) {
+      log.error('Error getting auction addresses:', error as Error);
+      throw error;
+    }
+  }
+
+  public async getCollectionChildren(
+    collectionAddress: PublicKey,
+    limit: number = 1000,
+  ): Promise<DasApiAsset[]> {
+    try {
+      log.info('Fetching collection children', {
+        collectionAddress: collectionAddress.toString(),
+        limit,
+      });
+      const nfts = await this.umi.rpc.getAssetsByGroup({
+        groupKey: 'collection',
+        groupValue: collectionAddress.toString(),
+        sortBy: { sortBy: 'created', sortDirection: 'asc' },
+        limit,
+      });
+
+      log.info('Collection children fetched', {
+        collectionAddress: collectionAddress.toString(),
+        total: nfts.total,
+        items: nfts.items,
+      });
+
+      return nfts.items;
+    } catch (error) {
+      log.error('Error getting collection children:', error as Error);
+      return [];
     }
   }
 }

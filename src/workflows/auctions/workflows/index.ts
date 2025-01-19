@@ -18,3 +18,8 @@ export {
   status as allowedCreatorsStatus,
   getAllowedCreatorsWorkflowFunction,
 } from './allowed-creators';
+export {
+  monitorAuctionWorkflow,
+  monitorAuctionWorkflowFunction,
+  monitorAuctionResult,
+} from './monitor-auction';

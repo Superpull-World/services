@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { workflowRegistry } from '../workflows/registry';
 import { loggerService } from '../services/logger';
 import { LogContext } from '../services/logger';
+import { WorkflowOptions } from '@temporalio/client';
 
 interface WorkflowError extends Error {
   workflowName?: string;
@@ -25,7 +26,7 @@ class WorkflowController {
       loggerService.warn('Workflow not found in registry', {
         workflowName: name,
       });
-      return { workflow: null, queries: null, taskQueue: null };
+      return { workflow: null, queries: null, taskQueue: null, config: null };
     }
 
     loggerService.debug('Workflow found in registry', {
@@ -58,7 +59,7 @@ class WorkflowController {
         workflowId: id,
       });
 
-      const { workflow, taskQueue } = this.findWorkflow(name);
+      const { workflow, taskQueue, config } = this.findWorkflow(name);
       if (!workflow) {
         loggerService.error('Workflow not found', new Error(), {
           workflowName: name,
@@ -69,16 +70,22 @@ class WorkflowController {
         return;
       }
 
-      await client.start(workflow, {
-        args: args || [],
+      const workflowOptions: WorkflowOptions = {
         taskQueue: taskQueue!,
         workflowId: id,
+        ...config,
+      };
+
+      await client.start(workflow, {
+        args: args || [],
+        ...workflowOptions,
       });
 
       loggerService.info('Workflow started successfully', {
         workflowId: id,
         workflowName: name,
         taskQueue: taskQueue || undefined,
+        config: config ? JSON.stringify(config) : undefined,
       });
 
       res.status(200).json({

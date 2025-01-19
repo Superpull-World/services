@@ -78,44 +78,6 @@ export async function verifyUserJWT(
   }
 }
 
-export async function createAuctionCollection(
-  input: CreateAuctionInput,
-): Promise<AuctionCollectionOutput> {
-  try {
-    const logData = {
-      input: {
-        name: input.name,
-        ownerAddress: input.ownerAddress,
-      },
-    };
-    log.info('Creating auction collection', logData);
-    const solanaService = SolanaService.getInstance();
-
-    const result = await solanaService.createAuctionCollection(
-      `${input.name} Collection`,
-      `Collection for ${input.name} auction`,
-      new PublicKey(input.ownerAddress),
-    );
-
-    return {
-      collectionMint: result.collectionMint.toString(),
-      transactionHash: result.txId,
-      status: 'success',
-      message: 'Auction collection created successfully',
-    };
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error occurred';
-    log.error('Error creating auction collection:', { error: errorMessage });
-    return {
-      collectionMint: '',
-      transactionHash: '',
-      status: 'failed',
-      message: errorMessage,
-    };
-  }
-}
-
 export async function initializeAuction(
   input: CreateAuctionInput,
   collectionMint: string,

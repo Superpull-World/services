@@ -1,17 +1,18 @@
 import { log } from '@temporalio/activity';
 import { SolanaService } from '../../../services/solana';
 
+export interface AuctionBasicInfo {
+  address: string;
+  authority: string;
+  isGraduated: boolean;
+}
+
 export interface GetAuctionsInput {
-  authority?: string;
-  isGraduated?: boolean;
   limit?: number;
   offset?: number;
 }
 
-export interface GetAuctionsOutput {
-  auctions: AuctionDetails[];
-  total: number;
-}
+export type GetAuctionsOutput = Partial<AuctionDetails>[];
 
 export interface GetAuctionDetailsInput {
   auctionAddress: string;
@@ -40,48 +41,17 @@ export interface AuctionDetails {
   currentPrice: number;
 }
 
-export async function getAuctions(
-  input: GetAuctionsInput,
-): Promise<GetAuctionsOutput> {
+export async function getAuctions(): Promise<GetAuctionsOutput> {
   try {
     const solanaService = SolanaService.getInstance();
-    const result = await solanaService.getAuctions({
-      authority: input.authority,
-      isGraduated: input.isGraduated,
-      limit: input.limit || 10, // Default limit to 10
-      offset: input.offset || 0,
-    });
+    const addresses = await solanaService.getAuctionAddresses();
 
-    const auctions = result.auctions.map((auction) => ({
-      address: auction.address,
-      name: '', // These would come from metadata
-      description: '',
-      imageUrl: '',
-      authority: auction.state.authority.toString(),
-      merkleTree: auction.state.merkleTree.toString(),
-      tokenMint: auction.state.tokenMint.toString(),
-      collectionMint: auction.state.collectionMint.toString(),
-      basePrice: auction.state.basePrice.toNumber(),
-      priceIncrement: auction.state.priceIncrement.toNumber(),
-      currentSupply: auction.state.currentSupply.toNumber(),
-      maxSupply: auction.state.maxSupply.toNumber(),
-      totalValueLocked: auction.state.totalValueLocked.toNumber(),
-      minimumItems: auction.state.minimumItems.toNumber(),
-      deadline: auction.state.deadline.toNumber(),
-      isGraduated: auction.state.isGraduated,
-      currentPrice: 0, // Will be calculated separately if needed
+    return addresses.auctions.map((auction) => ({
+      address: auction,
     }));
-
-    return {
-      auctions,
-      total: result.total,
-    };
   } catch (error) {
     log.error('Error in getAuctions activity:', error as Error);
-    return {
-      auctions: [],
-      total: 0,
-    };
+    return [];
   }
 }
 
@@ -90,32 +60,57 @@ export async function getAuctionDetails(
 ): Promise<GetAuctionDetailsOutput> {
   try {
     const solanaService = SolanaService.getInstance();
-    const auction = await solanaService.getAuctionDetails(input.auctionAddress);
-
-    return {
-      auction: {
-        address: auction.address,
-        name: '', // These would come from metadata
-        description: '',
-        imageUrl: '',
-        authority: auction.state.authority.toString(),
-        merkleTree: auction.state.merkleTree.toString(),
-        tokenMint: auction.state.tokenMint.toString(),
-        basePrice: auction.state.basePrice.toNumber(),
-        priceIncrement: auction.state.priceIncrement.toNumber(),
-        currentSupply: auction.state.currentSupply.toNumber(),
-        maxSupply: auction.state.maxSupply.toNumber(),
-        totalValueLocked: auction.state.totalValueLocked.toNumber(),
-        minimumItems: auction.state.minimumItems.toNumber(),
-        deadline: auction.state.deadline.toNumber(),
-        isGraduated: auction.state.isGraduated,
-        currentPrice: auction.currentPrice,
-      },
-    };
+    try {
+      const auction = await solanaService.getAuctionDetails(
+        input.auctionAddress,
+      );
+      return {
+        auction: {
+          address: auction.address,
+          name: '', // These would come from metadata
+          description: '',
+          imageUrl: '',
+          authority: auction.state.authority.toString(),
+          merkleTree: auction.state.merkleTree.toString(),
+          tokenMint: auction.state.tokenMint.toString(),
+          basePrice: auction.state.basePrice.toNumber(),
+          priceIncrement: auction.state.priceIncrement.toNumber(),
+          currentSupply: auction.state.currentSupply.toNumber(),
+          maxSupply: auction.state.maxSupply.toNumber(),
+          totalValueLocked: auction.state.totalValueLocked.toNumber(),
+          minimumItems: auction.state.minimumItems.toNumber(),
+          deadline: auction.state.deadline.toNumber(),
+          isGraduated: auction.state.isGraduated,
+          currentPrice: 0, // Will be calculated if needed
+        },
+      };
+    } catch (error) {
+      // Log specific error but return null for auction
+      log.error('Error fetching auction details:', error as Error);
+      return {
+        auction: {
+          address: input.auctionAddress,
+          name: '',
+          description: '',
+          imageUrl: '',
+          authority: '',
+          merkleTree: '',
+          tokenMint: '',
+          basePrice: 0,
+          priceIncrement: 0,
+          currentSupply: 0,
+          maxSupply: 0,
+          totalValueLocked: 0,
+          minimumItems: 0,
+          deadline: 0,
+          isGraduated: false,
+          currentPrice: 0,
+        },
+      };
+    }
   } catch (error) {
+    // Log service error but continue
     log.error('Error in getAuctionDetails activity:', error as Error);
-    return {
-      auction: null,
-    };
+    return { auction: null };
   }
 }
