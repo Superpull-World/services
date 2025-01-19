@@ -27,12 +27,12 @@ export async function validateJwt(
   console.log('🔐 Validating JWT token');
   try {
     const jwtPayload = await verifyJWT(input.jwt);
-    
+
     // Verify that the JWT belongs to the wallet address
     if (jwtPayload.publicKey !== input.walletAddress) {
       throw new Error('JWT does not match the provided wallet address');
     }
-    
+
     return jwtPayload;
   } catch (error) {
     console.error('❌ JWT validation failed:', error);
@@ -45,7 +45,7 @@ export async function getAcceptedTokenMints(
 ): Promise<GetAcceptedTokenMintsOutput> {
   console.log('🔍 Fetching accepted token mints');
   try {
-    const solanaService = new SolanaService();
+    const solanaService = SolanaService.getInstance();
     const tokenMints: TokenMetadata[] = [];
     const walletPublicKey = new PublicKey(input.walletAddress);
 

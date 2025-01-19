@@ -44,7 +44,7 @@ export async function getAuctions(
   input: GetAuctionsInput,
 ): Promise<GetAuctionsOutput> {
   try {
-    const solanaService = new SolanaService();
+    const solanaService = SolanaService.getInstance();
     const result = await solanaService.getAuctions({
       authority: input.authority,
       isGraduated: input.isGraduated,
@@ -89,7 +89,7 @@ export async function getAuctionDetails(
   input: GetAuctionDetailsInput,
 ): Promise<GetAuctionDetailsOutput> {
   try {
-    const solanaService = new SolanaService();
+    const solanaService = SolanaService.getInstance();
     const auction = await solanaService.getAuctionDetails(input.auctionAddress);
 
     return {

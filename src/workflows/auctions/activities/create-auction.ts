@@ -89,7 +89,7 @@ export async function createAuctionCollection(
       },
     };
     log.info('Creating auction collection', logData);
-    const solanaService = new SolanaService();
+    const solanaService = SolanaService.getInstance();
 
     const result = await solanaService.createAuctionCollection(
       `${input.name} Collection`,
@@ -128,7 +128,7 @@ export async function initializeAuction(
       },
     };
     log.info('Initializing auction', logData);
-    const solanaService = new SolanaService();
+    const solanaService = SolanaService.getInstance();
 
     // Create merkle tree for the auction
     const merkleTree = await solanaService.createMerkleTree();

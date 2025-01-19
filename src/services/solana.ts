@@ -64,13 +64,21 @@ export interface NFTMetadata {
 }
 
 export class SolanaService {
+  private static instance: SolanaService;
   private connection: Connection;
   public payer: Keypair;
   private umi: Umi;
   private anchorClient: AnchorClient;
   private collectionMint!: Keypair;
 
-  constructor(
+  public static getInstance(): SolanaService {
+    if (!SolanaService.instance) {
+      SolanaService.instance = new SolanaService();
+    }
+    return SolanaService.instance;
+  }
+
+  private constructor(
     endpoint: string = process.env.SOLANA_RPC_ENDPOINT ||
       'https://api.devnet.solana.com',
     payerPrivateKey: string = process.env.SOLANA_PRIVATE_KEY!,

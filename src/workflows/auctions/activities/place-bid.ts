@@ -28,7 +28,7 @@ export async function createBidTransaction(
   input: PlaceBidInput,
 ): Promise<PlaceBidOutput> {
   try {
-    const solanaService = new SolanaService();
+    const solanaService = SolanaService.getInstance();
     return await solanaService.createBidTransaction(input);
   } catch (error) {
     log.error('Error in createBidTransaction activity:', error as Error);
@@ -43,7 +43,7 @@ export async function submitSignedBid(
   input: SubmitSignedBidInput,
 ): Promise<SubmitSignedBidOutput> {
   try {
-    const solanaService = new SolanaService();
+    const solanaService = SolanaService.getInstance();
     return await solanaService.submitSignedBidTransaction(
       input.signedTransaction,
     );
