@@ -41,8 +41,15 @@ import {
 import { log } from '@temporalio/activity';
 import { AnchorClient } from './anchor-client';
 import { SuperpullProgram } from '../types/superpull_program';
-import { getMint, getAccount } from '@solana/spl-token';
-import { DasApiAsset } from '@metaplex-foundation/digital-asset-standard-api';
+import {
+  getMint,
+  getAccount,
+  getOrCreateAssociatedTokenAccount,
+} from '@solana/spl-token';
+import {
+  DasApiAsset,
+  DasApiAssetCreator,
+} from '@metaplex-foundation/digital-asset-standard-api';
 
 // Constants
 const MAX_DEPTH = 14;
@@ -422,6 +429,7 @@ export class SolanaService {
   public async getAuctionDetails(auctionAddress: string): Promise<{
     address: string;
     state: anchor.IdlAccounts<SuperpullProgram>['auctionState'];
+    creators: DasApiAssetCreator[];
     currentPrice: number;
   }> {
     try {
@@ -437,10 +445,17 @@ export class SolanaService {
       log.info('Current price fetched', {
         currentPrice,
       });
+      const asset = await this.umi.rpc.getAsset(
+        fromWeb3JsPublicKey(state.collectionMint),
+      );
+      log.info('Asset fetched', {
+        asset,
+      });
 
       return {
         address: auctionAddress,
         state,
+        creators: asset.creators,
         currentPrice: currentPrice.price.toNumber(),
       };
     } catch (error) {
@@ -832,8 +847,54 @@ export class SolanaService {
       return [];
     }
   }
-}
-function findProgramAddressSync(arg0: Buffer[], arg1: anchor.web3.PublicKey): anchor.web3.PublicKey | PromiseLike<anchor.web3.PublicKey> {
-  throw new Error('Function not implemented.');
-}
 
+  async withdraw(
+    auctionAddress: PublicKey,
+    authority: PublicKey,
+    collectionMint: PublicKey,
+    creators: PublicKey[],
+    tokenMint: PublicKey,
+  ): Promise<{
+    success: boolean;
+    message?: string;
+    signature?: string;
+  }> {
+    log.info('Withdrawing from auction', {
+      auctionAddress: auctionAddress.toString(),
+      authority: authority.toString(),
+      collectionMint: collectionMint.toString(),
+      creators: creators.map((creator) => creator.toString()),
+      tokenMint: tokenMint.toString(),
+    });
+    const creators_token_accounts = await Promise.all(
+      creators.map((creator) =>
+        getOrCreateAssociatedTokenAccount(
+          this.connection,
+          this.payer,
+          tokenMint,
+          creator,
+        ),
+      ),
+    );
+    try {
+      await this.anchorClient.withdraw(
+        auctionAddress,
+        authority,
+        collectionMint,
+        creators_token_accounts.map((creator) => creator.address),
+        tokenMint,
+        this.payer,
+      );
+      return {
+        success: true,
+        message: 'Withdrawal successful',
+      };
+    } catch (error) {
+      log.error('Error withdrawing from auction:', error as Error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+}

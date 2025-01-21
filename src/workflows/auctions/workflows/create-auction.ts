@@ -95,6 +95,7 @@ export const createAuctionWorkflowFunction = async (
       message: nftResult.message,
     };
   }
+
   // Verify the collection
   setHandler(status, () => 'verifying-collection');
   const verifyResult = await verifyCollection({

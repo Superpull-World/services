@@ -57,6 +57,11 @@ import {
   monitorAuctionResult,
   MonitorAuctionInput,
 } from './auctions/workflows/monitor-auction';
+import {
+  withdrawAuctionWorkflow,
+  WithdrawAuctionInput,
+  WithdrawAuctionOutput,
+} from './auctions/workflows/withdraw-auction';
 
 export type QueryResult =
   | string
@@ -150,6 +155,13 @@ interface WorkflowRegistry {
     {
       status: string;
       auctionResult: AuctionDetails | null;
+    }
+  >;
+  withdrawAuction: WorkflowEntry<
+    WithdrawAuctionInput,
+    WithdrawAuctionOutput,
+    {
+      status: string;
     }
   >;
 }
@@ -264,6 +276,15 @@ export const workflowRegistry: WorkflowRegistry = {
     config: {
       ...defaultConfig,
       workflowExecutionTimeout: '30 minutes',
+    },
+  },
+  withdrawAuction: {
+    workflow: withdrawAuctionWorkflow.workflow,
+    taskQueue: withdrawAuctionWorkflow.taskQueue,
+    queries: withdrawAuctionWorkflow.queries,
+    config: {
+      ...defaultConfig,
+      workflowExecutionTimeout: '5 minutes',
     },
   },
 };

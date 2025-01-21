@@ -36,6 +36,7 @@ import {
   LOG_WRAPPER_PROGRAM_ID,
 } from '../config/env';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
+import * as web3 from '@solana/web3.js';
 
 interface InitializeAuctionAccounts {
   auction: PublicKey;
@@ -48,15 +49,17 @@ interface InitializeAuctionAccounts {
 }
 
 export class AnchorClient {
-  program: Program<SuperpullProgram>;
-  umi: Umi;
+  program!: Program<SuperpullProgram>;
+  umi!: Umi;
+  provider!: anchor.Provider;
 
   constructor(provider: anchor.AnchorProvider) {
+    this.provider = provider;
     log.debug('Initializing Anchor client', {
       IDL,
     });
     // @ts-expect-error IDL type mismatch
-    this.program = new Program(IDL, provider);
+    this.program = new Program(IDL, this.provider);
 
     // Initialize UMI
     this.umi = createUmi(provider.connection.rpcEndpoint)
@@ -309,5 +312,135 @@ export class AnchorClient {
       });
       throw error;
     }
+  }
+
+  async withdraw(
+    auctionAddress: PublicKey,
+    authority: PublicKey,
+    collectionMint: PublicKey,
+    creators_token_accounts: PublicKey[],
+    tokenMint: PublicKey,
+    payer: Signer,
+  ): Promise<{ signature: string }> {
+    const authorityTokenAccount = getAssociatedTokenAddressSync(
+      tokenMint,
+      authority,
+    );
+    const auctionTokenAccount = getAssociatedTokenAddressSync(
+      tokenMint,
+      auctionAddress,
+    );
+    log.info('Withdrawing from auction', {
+      auction: auctionAddress.toString(),
+      authority: authority.toString(),
+      authorityTokenAccount: authorityTokenAccount.toString(),
+      auctionTokenAccount: auctionTokenAccount.toString(),
+    });
+
+    // Create lookup table
+    const slot = await this.program.provider.connection.getSlot();
+    const createLookupTableInst =
+      web3.AddressLookupTableProgram.createLookupTable({
+        authority: payer.publicKey,
+        payer: payer.publicKey,
+        recentSlot: slot,
+      });
+
+    // Create and send transaction for lookup table creation
+    let tx = new web3.Transaction().add(createLookupTableInst[0]);
+    const lookupTableAddress = createLookupTableInst[1];
+    let txReceipt = await (
+      this.program.provider as anchor.AnchorProvider
+    ).sendAndConfirm(tx, [payer], {
+      skipPreflight: true,
+    });
+    log.info('Lookup Table Created:', { txReceipt });
+
+    // Extend lookup table with creator token accounts
+    const extendInstruction = web3.AddressLookupTableProgram.extendLookupTable({
+      payer: payer.publicKey,
+      authority: payer.publicKey,
+      lookupTable: lookupTableAddress,
+      addresses: creators_token_accounts,
+    });
+
+    tx = new web3.Transaction().add(extendInstruction);
+    txReceipt = await (
+      this.program.provider as anchor.AnchorProvider
+    ).sendAndConfirm(tx, [payer], {
+      skipPreflight: true,
+    });
+    log.info('Lookup Table Extended:', { txReceipt });
+
+    // Get lookup table account
+    const lookupTableAccount = (
+      await this.program.provider.connection.getAddressLookupTable(
+        lookupTableAddress,
+      )
+    ).value;
+
+    if (!lookupTableAccount) {
+      throw new Error('Failed to fetch lookup table account');
+    }
+
+    // Wait for lookup table to be ready
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    const collectionMetadata = findMetadataPda(this.umi, {
+      mint: fromWeb3JsPublicKey(collectionMint),
+    });
+
+    const accounts = {
+      auction: auctionAddress,
+      authority,
+      authorityTokenAccount,
+      auctionTokenAccount,
+      collectionMetadata: collectionMetadata[0].toString(),
+      payer: payer.publicKey,
+      systemProgram: SystemProgram.programId,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      metadataProgram: TOKEN_METADATA_PROGRAM_ID,
+    };
+
+    // Get withdraw instruction
+    const withdrawInstruction = await this.program.methods
+      .withdraw()
+      .accounts(accounts)
+      .remainingAccounts(
+        creators_token_accounts.map((account) => ({
+          pubkey: account,
+          isSigner: false,
+          isWritable: true,
+        })),
+      )
+      .instruction();
+
+    // Create versioned transaction
+    const { blockhash } =
+      await this.program.provider.connection.getLatestBlockhash();
+
+    const message = new web3.TransactionMessage({
+      payerKey: payer.publicKey,
+      recentBlockhash: blockhash,
+      instructions: [withdrawInstruction],
+    }).compileToV0Message([lookupTableAccount]);
+
+    const versionedTx = new web3.VersionedTransaction(message);
+    versionedTx.sign([payer]);
+
+    // Send and confirm transaction
+    const signature = await this.program.provider.connection.sendTransaction(
+      versionedTx,
+      {
+        skipPreflight: true,
+      },
+    );
+    await this.program.provider.connection.confirmTransaction(
+      signature,
+      'confirmed',
+    );
+
+    log.info('Withdrawal completed successfully', { signature });
+    return { signature };
   }
 }

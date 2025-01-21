@@ -30,6 +30,12 @@ export interface AuctionDetails {
   authority: string;
   merkleTree: string;
   tokenMint: string;
+  collectionMint: string;
+  creators: {
+    address: string;
+    verified: boolean;
+    share: number;
+  }[];
   basePrice: number;
   priceIncrement: number;
   currentSupply: number;
@@ -73,6 +79,12 @@ export async function getAuctionDetails(
           authority: auction.state.authority.toString(),
           merkleTree: auction.state.merkleTree.toString(),
           tokenMint: auction.state.tokenMint.toString(),
+          collectionMint: auction.state.collectionMint.toString(),
+          creators: auction.creators.map((creator) => ({
+            address: creator.address.toString(),
+            verified: creator.verified,
+            share: creator.share,
+          })),
           basePrice: auction.state.basePrice.toNumber(),
           priceIncrement: auction.state.priceIncrement.toNumber(),
           currentSupply: auction.state.currentSupply.toNumber(),
@@ -95,6 +107,8 @@ export async function getAuctionDetails(
           imageUrl: '',
           authority: '',
           merkleTree: '',
+          collectionMint: '',
+          creators: [],
           tokenMint: '',
           basePrice: 0,
           priceIncrement: 0,
