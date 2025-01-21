@@ -4,13 +4,14 @@ import { SolanaService } from '../../../services/solana';
 
 export interface UpdateCollectionAuthorityInput {
   collectionMint: string;
-  auctionAddress: string;
+  authorityAddress: string;
   merkleTree: string;
 }
 
 export interface UpdateCollectionAuthorityOutput {
   transactionHash: string;
   status: 'success' | 'failed';
+  auctionAddress: string;
   message: string;
 }
 
@@ -18,23 +19,28 @@ export async function updateCollectionAuthority(
   input: UpdateCollectionAuthorityInput,
 ): Promise<UpdateCollectionAuthorityOutput> {
   try {
+    const solanaService = SolanaService.getInstance();
+    const auctionAddress = await solanaService.findAuctionAddress(
+      new PublicKey(input.authorityAddress),
+      new PublicKey(input.collectionMint),
+    );
     const logData = {
       input: {
         collectionMint: input.collectionMint,
-        auctionAddress: input.auctionAddress,
+        auctionAddress: auctionAddress.toString(),
       },
     };
     log.info('Updating collection authority', logData);
-    const solanaService = SolanaService.getInstance();
 
     const result = await solanaService.updateCollectionAuthority(
       new PublicKey(input.collectionMint),
-      new PublicKey(input.auctionAddress),
+      new PublicKey(auctionAddress),
       new PublicKey(input.merkleTree),
     );
 
     return {
       transactionHash: result.txId,
+      auctionAddress: auctionAddress.toString(),
       status: 'success',
       message: 'Collection authority updated successfully',
     };
@@ -44,8 +50,9 @@ export async function updateCollectionAuthority(
     log.error('Error updating collection authority:', { error: errorMessage });
     return {
       transactionHash: '',
+      auctionAddress: '',
       status: 'failed',
       message: errorMessage,
     };
   }
-} 
+}

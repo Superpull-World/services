@@ -6,11 +6,17 @@ export interface CreateCollectionNFTInput {
   name: string;
   description: string;
   ownerAddress: string;
+  creators: {
+    address: string;
+    verified: boolean;
+    share: number;
+  }[];
 }
 
 export interface CreateCollectionNFTOutput {
   collectionMint: string;
   transactionHash: string;
+  merkleTree: string;
   status: 'success' | 'failed';
   message: string;
 }
@@ -32,11 +38,17 @@ export async function createCollectionNFT(
       input.name,
       input.description,
       new PublicKey(input.ownerAddress),
+      input.creators.map((creator) => ({
+        address: new PublicKey(creator.address),
+        verified: creator.verified,
+        share: creator.share,
+      })),
     );
 
     return {
       collectionMint: result.collectionMint.toString(),
       transactionHash: result.txId,
+      merkleTree: result.merkleTree.toString(),
       status: 'success',
       message: 'Collection NFT created successfully',
     };
@@ -46,9 +58,10 @@ export async function createCollectionNFT(
     log.error('Error creating collection NFT:', { error: errorMessage });
     return {
       collectionMint: '',
+      merkleTree: '',
       transactionHash: '',
       status: 'failed',
       message: errorMessage,
     };
   }
-} 
+}

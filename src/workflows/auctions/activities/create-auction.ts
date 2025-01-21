@@ -15,6 +15,12 @@ export interface CreateAuctionInput {
   jwt: string;
   deadline: number; // Unix timestamp in seconds
   tokenMint: string;
+  authorityBasisPoint: number;
+  creators: {
+    address: string;
+    verified: boolean;
+    share: number;
+  }[];
 }
 
 export interface AuctionCollectionOutput {
@@ -80,7 +86,9 @@ export async function verifyUserJWT(
 
 export async function initializeAuction(
   input: CreateAuctionInput,
+  auctionAddress: string,
   collectionMint: string,
+  merkleTree: string,
 ): Promise<AuctionInitOutput> {
   try {
     const logData = {
@@ -92,12 +100,9 @@ export async function initializeAuction(
     log.info('Initializing auction', logData);
     const solanaService = SolanaService.getInstance();
 
-    // Create merkle tree for the auction
-    const merkleTree = await solanaService.createMerkleTree();
-
     // Initialize the auction with the merkle tree
     const result = await solanaService.initializeAuction(
-      merkleTree,
+      new PublicKey(merkleTree),
       new PublicKey(input.ownerAddress),
       new PublicKey(collectionMint),
       input.price,
@@ -106,6 +111,7 @@ export async function initializeAuction(
       input.minimumItems,
       input.deadline,
       new PublicKey(input.tokenMint),
+      1000,
     );
 
     return {

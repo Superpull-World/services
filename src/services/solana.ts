@@ -203,7 +203,7 @@ export class SolanaService {
       const treeBuilder = await createTree(this.umi, {
         maxDepth: MAX_DEPTH,
         maxBufferSize: MAX_BUFFER_SIZE,
-        public: some(true),
+        public: some(false),
         merkleTree: merkleTreeKeypair,
       });
 
@@ -226,7 +226,16 @@ export class SolanaService {
     name: string,
     description: string,
     authority: PublicKey,
-  ): Promise<{ collectionMint: PublicKey; txId: string }> {
+    creators: {
+      address: PublicKey;
+      verified: boolean;
+      share: number;
+    }[],
+  ): Promise<{
+    collectionMint: PublicKey;
+    txId: string;
+    merkleTree: PublicKey;
+  }> {
     try {
       log.info('Creating collection NFT', {
         name,
@@ -236,6 +245,14 @@ export class SolanaService {
       // Generate a new signer for the collection
       const collectionSigner = generateSigner(this.umi);
 
+      const someCreators = some(
+        creators.map((creator) => ({
+          address: fromWeb3JsPublicKey(creator.address),
+          verified: creator.verified,
+          share: creator.share,
+        })),
+      );
+
       // Create the collection NFT
       const builder = createNft(this.umi, {
         mint: collectionSigner,
@@ -244,7 +261,7 @@ export class SolanaService {
         uri: COLLECTION_URI,
         sellerFeeBasisPoints: percentAmount(0),
         isCollection: true,
-        creators: none(),
+        creators: someCreators,
         collection: {
           key: fromWeb3JsPublicKey(this.collectionMint.publicKey),
           verified: false,
@@ -254,14 +271,25 @@ export class SolanaService {
 
       const result = await builder.sendAndConfirm(this.umi);
 
+      // Create merkle tree for the auction
+      const merkleTree = await this.createMerkleTree();
+
       return {
         collectionMint: new PublicKey(collectionSigner.publicKey),
         txId: result.signature.toString(),
+        merkleTree,
       };
     } catch (error) {
       log.error('Error creating collection NFT:', error as Error);
       throw error;
     }
+  }
+
+  public async findAuctionAddress(
+    authority: PublicKey,
+    collectionMint: PublicKey,
+  ): Promise<PublicKey> {
+    return this.anchorClient.findAuctionAddress(authority, collectionMint);
   }
 
   public async verifyCollection(
@@ -365,6 +393,7 @@ export class SolanaService {
     minimumItems: number,
     deadline: number,
     tokenMint: PublicKey,
+    authorityBasisPoint: number,
   ): Promise<{ auctionAddress: PublicKey; txId: string }> {
     try {
       const result = await this.anchorClient.initializeAuction(
@@ -377,6 +406,7 @@ export class SolanaService {
         minimumItems,
         deadline,
         tokenMint,
+        authorityBasisPoint,
       );
 
       return {
@@ -631,11 +661,7 @@ export class SolanaService {
       log.error('Error in createBidTransaction:', {
         error:
           error instanceof Error
-            ? {
-                message: error.message,
-                stack: error.stack,
-                name: error.name,
-              }
+            ? { message: error.message, stack: error.stack, name: error.name }
             : String(error),
         input: {
           auctionAddress: input.auctionAddress,
@@ -682,11 +708,7 @@ export class SolanaService {
       log.error('Error in submitSignedBidTransaction:', {
         error:
           error instanceof Error
-            ? {
-                message: error.message,
-                stack: error.stack,
-                name: error.name,
-              }
+            ? { message: error.message, stack: error.stack, name: error.name }
             : String(error),
       });
       return {
@@ -811,3 +833,7 @@ export class SolanaService {
     }
   }
 }
+function findProgramAddressSync(arg0: Buffer[], arg1: anchor.web3.PublicKey): anchor.web3.PublicKey | PromiseLike<anchor.web3.PublicKey> {
+  throw new Error('Function not implemented.');
+}
+

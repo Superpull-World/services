@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/superpull_program.json`.
  */
 export type SuperpullProgram = {
-  "address": "6A6WedM2c3nne1oGVk9kpNjZHHqNGAf7P9B9aWHV4Hba",
+  "address": "CBKaUEgJXnwooDqkM1Tk9woM1729Yzg2XfrvzFZpp2Zn",
   "metadata": {
     "name": "superpullProgram",
     "version": "0.1.0",
@@ -81,10 +81,40 @@ export type SuperpullProgram = {
           "writable": true
         },
         {
-          "name": "tokenMint",
-          "docs": [
-            "The mint of the token that will be accepted for payments"
-          ]
+          "name": "collectionMetadata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "tokenMetadataProgram"
+              },
+              {
+                "kind": "account",
+                "path": "collectionMint"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "tokenMetadataProgram"
+            }
+          }
+        },
+        {
+          "name": "tokenMint"
         },
         {
           "name": "authority",
@@ -102,6 +132,10 @@ export type SuperpullProgram = {
         },
         {
           "name": "bubblegumProgram"
+        },
+        {
+          "name": "tokenMetadataProgram",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
         },
         {
           "name": "systemProgram",
@@ -128,6 +162,10 @@ export type SuperpullProgram = {
         {
           "name": "deadline",
           "type": "i64"
+        },
+        {
+          "name": "authorityBasisPoints",
+          "type": "u16"
         }
       ]
     },
@@ -276,7 +314,8 @@ export type SuperpullProgram = {
           }
         },
         {
-          "name": "tokenMetadataProgram"
+          "name": "tokenMetadataProgram",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
         },
         {
           "name": "compressionProgram"
@@ -292,7 +331,8 @@ export type SuperpullProgram = {
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "tokenProgram"
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
@@ -406,16 +446,14 @@ export type SuperpullProgram = {
         },
         {
           "name": "authorityTokenAccount",
-          "docs": [
-            "The authority's token account to receive the withdrawn tokens"
-          ],
           "writable": true
         },
         {
           "name": "auctionTokenAccount",
-          "docs": [
-            "The auction's token account to withdraw from"
-          ],
+          "writable": true
+        },
+        {
+          "name": "collectionMetadata",
           "writable": true
         },
         {
@@ -431,7 +469,12 @@ export type SuperpullProgram = {
           "address": "11111111111111111111111111111111"
         },
         {
-          "name": "tokenProgram"
+          "name": "tokenProgram",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "metadataProgram",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
         }
       ],
       "args": []
@@ -578,106 +621,136 @@ export type SuperpullProgram = {
     },
     {
       "code": 6006,
+      "name": "invalidCollectionCreators",
+      "msg": "Collection metadata must have creators defined"
+    },
+    {
+      "code": 6007,
+      "name": "invalidCollectionUpdateAuthority",
+      "msg": "Collection metadata update authority must be the auction"
+    },
+    {
+      "code": 6008,
+      "name": "invalidTokenAccount",
+      "msg": "Invalid token account"
+    },
+    {
+      "code": 6009,
+      "name": "invalidCollectionMint",
+      "msg": "Invalid collection mint"
+    },
+    {
+      "code": 6010,
+      "name": "invalidCreatorsTokenAccountsLookup",
+      "msg": "Invalid creators token accounts lookup"
+    },
+    {
+      "code": 6011,
+      "name": "invalidCreatorsTokenAccountsLookupLength",
+      "msg": "Invalid creators token accounts lookup length"
+    },
+    {
+      "code": 6012,
       "name": "insufficientBidAmount",
       "msg": "Bid amount is less than current price"
     },
     {
-      "code": 6007,
+      "code": 6013,
       "name": "maxSupplyReached",
       "msg": "Maximum supply reached"
     },
     {
-      "code": 6008,
+      "code": 6014,
       "name": "invalidBidAmount",
       "msg": "Invalid bid amount provided"
     },
     {
-      "code": 6009,
+      "code": 6015,
       "name": "invalidBidder",
       "msg": "Bidder cannot be the zero address"
     },
     {
-      "code": 6010,
+      "code": 6016,
       "name": "invalidTokenMint",
       "msg": "Token account mint does not match auction token mint"
     },
     {
-      "code": 6011,
+      "code": 6017,
       "name": "unauthorizedWithdraw",
       "msg": "Unauthorized withdrawal attempt"
     },
     {
-      "code": 6012,
+      "code": 6018,
       "name": "notGraduated",
       "msg": "Auction must be graduated to withdraw funds"
     },
     {
-      "code": 6013,
+      "code": 6019,
       "name": "noFundsToWithdraw",
       "msg": "No funds available to withdraw"
     },
     {
-      "code": 6014,
+      "code": 6020,
       "name": "insufficientRentBalance",
       "msg": "Cannot withdraw below rent-exempt balance"
     },
     {
-      "code": 6015,
+      "code": 6021,
       "name": "excessiveWithdrawalAmount",
       "msg": "Withdrawal amount exceeds available balance"
     },
     {
-      "code": 6016,
+      "code": 6022,
       "name": "alreadyGraduated",
       "msg": "Auction has already graduated"
     },
     {
-      "code": 6017,
+      "code": 6023,
       "name": "minimumItemsNotReached",
       "msg": "Auction has not reached minimum items"
     },
     {
-      "code": 6018,
+      "code": 6024,
       "name": "invalidAuctionState",
       "msg": "Invalid auction state"
     },
     {
-      "code": 6019,
+      "code": 6025,
       "name": "invalidAuthority",
       "msg": "Invalid authority provided"
     },
     {
-      "code": 6020,
+      "code": 6026,
       "name": "invalidAccountOwner",
       "msg": "Invalid account owner"
     },
     {
-      "code": 6021,
+      "code": 6027,
       "name": "notRentExempt",
       "msg": "Account is not rent exempt"
     },
     {
-      "code": 6022,
+      "code": 6028,
       "name": "invalidDeadline",
       "msg": "Invalid deadline"
     },
     {
-      "code": 6023,
+      "code": 6029,
       "name": "auctionExpired",
       "msg": "Auction expired"
     },
     {
-      "code": 6024,
+      "code": 6030,
       "name": "invalidRefundAttempt",
       "msg": "Cannot refund when auction is graduated or deadline not reached"
     },
     {
-      "code": 6025,
+      "code": 6031,
       "name": "noFundsToRefund",
       "msg": "No bid amount to refund"
     },
     {
-      "code": 6026,
+      "code": 6032,
       "name": "nftBurnError",
       "msg": "Failed to burn NFT during refund"
     }
@@ -803,6 +876,10 @@ export type SuperpullProgram = {
           {
             "name": "isGraduated",
             "type": "bool"
+          },
+          {
+            "name": "authorityBasisPoints",
+            "type": "u16"
           },
           {
             "name": "bump",

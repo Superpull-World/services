@@ -74,6 +74,7 @@ export class AnchorClient {
     minimumItems: number,
     deadline: number,
     tokenMint: PublicKey,
+    authority_basis_point: number,
   ): Promise<{ auctionAddress: PublicKey; signature: string }> {
     const auction_mint = AUCTION_MINTS.find(
       (mint) => mint.mint.toString() === tokenMint.toString(),
@@ -118,6 +119,7 @@ export class AnchorClient {
         new anchor.BN(maxSupply),
         new anchor.BN(minimumItems),
         new anchor.BN(deadline),
+        new anchor.BN(authority_basis_point),
       )
       .accounts(accounts)
       .rpc();
@@ -265,6 +267,14 @@ export class AnchorClient {
     const signature = await method.rpc();
     log.info('Bid placed successfully', { signature });
     return { signature };
+  }
+
+  async findAuctionAddress(authority: PublicKey, collectionMint: PublicKey) {
+    const [auctionPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from('auction'), authority.toBuffer(), collectionMint.toBuffer()],
+      this.program.programId,
+    );
+    return auctionPda;
   }
 
   async getAuctionState(auctionAddress: PublicKey) {

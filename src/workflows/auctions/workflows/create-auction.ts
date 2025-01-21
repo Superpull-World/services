@@ -1,4 +1,4 @@
-import { proxyActivities, defineQuery, setHandler, sleep } from '@temporalio/workflow';
+import { proxyActivities, defineQuery, setHandler } from '@temporalio/workflow';
 import { log } from '@temporalio/workflow';
 import type {
   CreateAuctionInput,
@@ -78,6 +78,7 @@ export const createAuctionWorkflowFunction = async (
     name: `${input.name} Collection`,
     description: `Collection for ${input.name} auction`,
     ownerAddress: input.ownerAddress,
+    creators: input.creators,
   });
 
   if (nftResult.status === 'failed') {
@@ -115,9 +116,37 @@ export const createAuctionWorkflowFunction = async (
     };
   }
 
+  // Update collection authority
+  setHandler(status, () => 'updating-collection-authority');
+  const authorityResult = await updateCollectionAuthority({
+    collectionMint: nftResult.collectionMint,
+    authorityAddress: input.ownerAddress,
+    merkleTree: nftResult.merkleTree,
+  });
+
+  if (authorityResult.status === 'failed') {
+    log.error('Collection authority update failed', { authorityResult });
+    setHandler(status, () => 'collection-authority-update-failed');
+    return {
+      collectionMint: nftResult.collectionMint,
+      collectionTransactionHash: nftResult.transactionHash,
+      auctionAddress: authorityResult.auctionAddress,
+      auctionTransactionHash: authorityResult.transactionHash,
+      merkleTree: nftResult.merkleTree,
+      tokenMint: '',
+      status: 'failed',
+      message: authorityResult.message,
+    };
+  }
+
   // Initialize the auction to get the auction PDA
   setHandler(status, () => 'initializing-auction');
-  const auctionResult = await initAuction(input, nftResult.collectionMint);
+  const auctionResult = await initAuction(
+    input,
+    authorityResult.auctionAddress,
+    nftResult.collectionMint,
+    nftResult.merkleTree,
+  );
 
   if (auctionResult.status === 'failed') {
     log.error('Auction initialization failed', { auctionResult });
@@ -131,29 +160,6 @@ export const createAuctionWorkflowFunction = async (
       tokenMint: '',
       status: 'failed',
       message: auctionResult.message,
-    };
-  }
-
-  // Update collection authority
-  setHandler(status, () => 'updating-collection-authority');
-  const authorityResult = await updateCollectionAuthority({
-    collectionMint: nftResult.collectionMint,
-    auctionAddress: auctionResult.auctionAddress,
-    merkleTree: auctionResult.merkleTree,
-  });
-
-  if (authorityResult.status === 'failed') {
-    log.error('Collection authority update failed', { authorityResult });
-    setHandler(status, () => 'collection-authority-update-failed');
-    return {
-      collectionMint: nftResult.collectionMint,
-      collectionTransactionHash: nftResult.transactionHash,
-      auctionAddress: auctionResult.auctionAddress,
-      auctionTransactionHash: auctionResult.transactionHash,
-      merkleTree: auctionResult.merkleTree,
-      tokenMint: '',
-      status: 'failed',
-      message: authorityResult.message,
     };
   }
 

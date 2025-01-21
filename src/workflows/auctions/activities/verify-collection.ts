@@ -43,4 +43,4 @@ export async function verifyCollection(
       message: errorMessage,
     };
   }
-} 
+}
