@@ -45,6 +45,8 @@ import {
   getMint,
   getAccount,
   getOrCreateAssociatedTokenAccount,
+  createAccount,
+  getMinimumBalanceForRentExemptAccount,
 } from '@solana/spl-token';
 import {
   DasApiAsset,
@@ -866,15 +868,42 @@ export class SolanaService {
       creators: creators.map((creator) => creator.toString()),
       tokenMint: tokenMint.toString(),
     });
+
     const creators_token_accounts = await Promise.all(
-      creators.map((creator) =>
-        getOrCreateAssociatedTokenAccount(
-          this.connection,
-          this.payer,
-          tokenMint,
-          creator,
-        ),
-      ),
+      creators.map(async (creator) => {
+        try {
+          const ix = SystemProgram.createAccount({
+            fromPubkey: this.payer.publicKey,
+            newAccountPubkey: creator,
+            lamports: 1,
+            space: await getMinimumBalanceForRentExemptAccount(this.connection),
+            programId: SystemProgram.programId,
+          });
+          await this.sendTransaction(new Transaction().add(ix));
+        } catch (error) {
+          log.error('Error creating creator account:', error as Error);
+        }
+        try {
+          const tokenAccount = await getOrCreateAssociatedTokenAccount(
+            this.connection,
+            this.payer,
+            tokenMint,
+            creator,
+            false,
+          );
+          return tokenAccount;
+        } catch {
+          log.error('Error getting or creating associated token account');
+          const tokenAccount = await getOrCreateAssociatedTokenAccount(
+            this.connection,
+            this.payer,
+            tokenMint,
+            creator,
+            true,
+          );
+          return tokenAccount;
+        }
+      }),
     );
     try {
       await this.anchorClient.withdraw(

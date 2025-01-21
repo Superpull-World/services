@@ -23,3 +23,7 @@ export {
   monitorAuctionWorkflowFunction,
   monitorAuctionResult,
 } from './monitor-auction';
+export {
+  withdrawAuctionWorkflowFunction,
+  status as withdrawAuctionStatus,
+} from './withdraw-auction';

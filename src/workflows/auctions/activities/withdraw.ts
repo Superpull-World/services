@@ -1,7 +1,7 @@
 import { PublicKey } from '@solana/web3.js';
 import { SolanaService } from '../../../services/solana';
 import type { WithdrawAuctionOutput } from '../workflows/withdraw-auction';
-import { log } from '@temporalio/workflow';
+import { log } from '@temporalio/activity';
 
 export async function withdraw(
   auctionAddress: string,

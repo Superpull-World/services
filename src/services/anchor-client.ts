@@ -329,6 +329,7 @@ export class AnchorClient {
     const auctionTokenAccount = getAssociatedTokenAddressSync(
       tokenMint,
       auctionAddress,
+      true,
     );
     log.info('Withdrawing from auction', {
       auction: auctionAddress.toString(),

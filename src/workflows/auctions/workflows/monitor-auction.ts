@@ -51,14 +51,14 @@ export async function monitorAuctionWorkflowFunction(
   setHandler(monitorAuctionResult, () => result);
 
   // Handle parent workflow ID updates
-  setHandler(updateParent, (newParentId: string) => {
+  setHandler(updateParent, async (newParentId: string) => {
     if (!parentIds.has(newParentId)) {
       parentIds.add(newParentId);
       // If we have current data, send it to the new parent
       if (result) {
         const parentHandle = getExternalWorkflowHandle(newParentId);
         try {
-          parentHandle.signal('monitorUpdate', result);
+          await parentHandle.signal('monitorUpdate', result);
         } catch {
           // If parent workflow no longer exists, remove it from the list
           parentIds.delete(newParentId);

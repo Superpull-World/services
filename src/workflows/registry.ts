@@ -38,6 +38,7 @@ import {
   type GetAcceptedTokenMintsInput,
   type AuctionDetails,
   createAuctionStatus,
+  withdrawAuctionStatus,
 } from './auctions';
 import {
   placeBidWorkflowFunction,
@@ -58,9 +59,9 @@ import {
   MonitorAuctionInput,
 } from './auctions/workflows/monitor-auction';
 import {
-  withdrawAuctionWorkflow,
   WithdrawAuctionInput,
   WithdrawAuctionOutput,
+  withdrawAuctionWorkflowFunction,
 } from './auctions/workflows/withdraw-auction';
 
 export type QueryResult =
@@ -279,9 +280,11 @@ export const workflowRegistry: WorkflowRegistry = {
     },
   },
   withdrawAuction: {
-    workflow: withdrawAuctionWorkflow.workflow,
-    taskQueue: withdrawAuctionWorkflow.taskQueue,
-    queries: withdrawAuctionWorkflow.queries,
+    workflow: withdrawAuctionWorkflowFunction,
+    taskQueue: 'auction',
+    queries: {
+      status: withdrawAuctionStatus,
+    },
     config: {
       ...defaultConfig,
       workflowExecutionTimeout: '5 minutes',

@@ -12,7 +12,7 @@ import {
 } from '@temporalio/workflow';
 import { log } from '@temporalio/workflow';
 import type { WorkflowEntry } from '../../registry';
-import type { AuctionDetails, verifyUserJWT } from '../activities';
+import type { AuctionDetails, verifyUserJWT, withdraw } from '../activities';
 import { monitorAuctionWorkflowFunction } from './monitor-auction';
 
 // Define the input type for the workflow
@@ -29,18 +29,12 @@ export interface WithdrawAuctionOutput {
   signature?: string;
 }
 
-const { withdraw, verifyUserJWT: verifyJWT } = proxyActivities<{
-  withdraw: (
-    auctionAddress: string,
-    authorityAddress: string,
-    collectionMint: string,
-    creators: { address: string; verified: boolean; share: number }[],
-    tokenMint: string,
-  ) => Promise<WithdrawAuctionOutput>;
-  verifyUserJWT: typeof verifyUserJWT;
-}>({
-  startToCloseTimeout: '1 minute',
-});
+const { withdraw: withdrawActivity, verifyUserJWT: verifyJWT } = proxyActivities<{
+    withdraw: typeof withdraw;
+    verifyUserJWT: typeof verifyUserJWT;
+  }>({
+    startToCloseTimeout: '1 minute',
+  });
 
 export const status = defineQuery<string>('status');
 
@@ -118,7 +112,7 @@ export const withdrawAuctionWorkflowFunction = async (
     await handle.signal('updateParent', parentWorkflowId);
   }
 
-  await condition(() => auction !== null, '1 minutes');
+  await condition(() => auction.tokenMint !== '', '1 minutes');
   if (auction.tokenMint === '') {
     log.error('Auction not found');
     setHandler(status, () => 'auction-not-found');
@@ -130,11 +124,11 @@ export const withdrawAuctionWorkflowFunction = async (
 
   // Perform the withdrawal
   setHandler(status, () => 'withdrawing');
-  const withdrawResult = await withdraw(
+  const withdrawResult = await withdrawActivity(
     auction.address,
     input.authorityAddress,
     auction.collectionMint,
-    auction.creators,
+    auction.creators.map((creator) => creator.address),
     auction.tokenMint,
   );
 
@@ -164,12 +158,4 @@ export const withdrawAuctionWorkflowFunction = async (
     message: 'Withdrawal completed successfully',
     signature: withdrawResult.signature,
   };
-};
-
-export const withdrawAuctionWorkflow: WithdrawAuctionWorkflow = {
-  workflow: withdrawAuctionWorkflowFunction,
-  taskQueue: 'auction-task-queue',
-  queries: {
-    status,
-  },
 };
