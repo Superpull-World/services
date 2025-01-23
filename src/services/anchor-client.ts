@@ -1,7 +1,6 @@
 import * as anchor from '@coral-xyz/anchor';
 import { Program } from '@coral-xyz/anchor';
 import {
-  AccountMeta,
   PublicKey,
   Signer,
   SystemProgram,
@@ -39,6 +38,7 @@ import {
 } from '../config/env';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import * as web3 from '@solana/web3.js';
+import { ProofHash } from './solana';
 
 interface InitializeAuctionAccounts {
   auction: PublicKey;
@@ -349,14 +349,8 @@ export class AnchorClient {
     auctionAddress: PublicKey,
     bidderAddress: PublicKey,
     merkleTree: PublicKey,
-    hashes: {
-      root: number[];
-      dataHash: number[];
-      creatorHash: number[];
-      nonce: anchor.BN;
-      index: anchor.BN;
-    },
-    proof_accounts: AccountMeta[],
+    hashes: ProofHash,
+    proof_accounts: string[],
     tokenMint: PublicKey,
     payer: Signer,
   ) {
@@ -376,7 +370,7 @@ export class AnchorClient {
       payer: payer.publicKey,
       authority: payer.publicKey,
       lookupTable: lookupTableAddress,
-      addresses: proof_accounts.map((account) => account.pubkey),
+      addresses: proof_accounts.map((account) => new PublicKey(account)),
     });
     tx = new web3.Transaction().add(extendInstruction);
     txReceipt = await this.provider.sendAndConfirm(tx);
@@ -412,7 +406,7 @@ export class AnchorClient {
       auctionTokenAccount: auctionTokenAccount,
       treeConfig: treeConfig.publicKey,
       merkleTree: merkleTree,
-      leafOwner: bidAddress,
+      leafOwner: bidderAddress,
       tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
       systemProgram: anchor.web3.SystemProgram.programId,
       bubblegumProgram: MPL_BUBBLEGUM_PROGRAM_ID,
@@ -424,9 +418,21 @@ export class AnchorClient {
       this.provider.connection.rpcEndpoint,
     );
     const ix = await this.program.methods
-      .refund(hashes)
+      .refund({
+        root: hashes.root,
+        dataHash: hashes.dataHash,
+        creatorHash: hashes.creatorHash,
+        nonce: new anchor.BN(hashes.nonce),
+        index: hashes.index,
+      })
       .accounts(accounts)
-      .remainingAccounts(proof_accounts)
+      .remainingAccounts(
+        proof_accounts.map((account) => ({
+          pubkey: new PublicKey(account),
+          isSigner: false,
+          isWritable: false,
+        })),
+      )
       .instruction();
     const message = new web3.TransactionMessage({
       payerKey: payer.publicKey,

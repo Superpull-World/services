@@ -8,7 +8,6 @@ import {
   NONCE_ACCOUNT_LENGTH,
   TransactionInstruction,
   Signer,
-  AccountMeta,
 } from '@solana/web3.js';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import {
@@ -52,7 +51,6 @@ import {
   DasApiAsset,
   DasApiAssetCreator,
 } from '@metaplex-foundation/digital-asset-standard-api';
-import { BN } from '@coral-xyz/anchor';
 import { bs58 } from '@coral-xyz/anchor/dist/cjs/utils/bytes';
 
 // Constants
@@ -85,12 +83,12 @@ export interface GetAuctionAddressesOutput {
   total: number;
 }
 
-export interface proofHash {
+export interface ProofHash {
   root: number[];
   dataHash: number[];
   creatorHash: number[];
-  nonce: BN;
-  index: BN;
+  nonce: number;
+  index: number;
 }
 
 export interface RefundInput {
@@ -98,8 +96,8 @@ export interface RefundInput {
   tokenMint: string;
   bidderAddress: string;
   merkleTree: string;
-  hashes: proofHash;
-  proofAccounts: AccountMeta[];
+  hashes: ProofHash;
+  proofAccounts: string[];
 }
 
 export class SolanaService {
@@ -466,13 +464,9 @@ export class SolanaService {
       bidderNfts.map(async (nft) => {
         const proof = await this.umi.rpc.getAssetProof(nft.id);
         const proofAccounts = proof.proof.map((p) => {
-          return {
-            pubkey: new PublicKey(p.toString()),
-            isSigner: false,
-            isWritable: false,
-          };
+          return p.toString();
         });
-        const hashes: proofHash = {
+        const hashes: ProofHash = {
           root: this.bufferToArray(bs58.decode(proof.root.toString())),
           dataHash: this.bufferToArray(
             bs58.decode(nft.compression.data_hash.toString()),
@@ -480,7 +474,7 @@ export class SolanaService {
           creatorHash: this.bufferToArray(
             bs58.decode(nft.compression.creator_hash.toString()),
           ),
-          nonce: new BN(nft.compression.leaf_id),
+          nonce: nft.compression.leaf_id,
           index: nft.compression.leaf_id,
         };
         return { proofAccounts, hashes };
