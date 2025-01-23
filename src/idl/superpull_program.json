@@ -383,10 +383,14 @@
         {
           "name": "bidder",
           "writable": true,
-          "signer": true,
           "relations": [
             "bid"
           ]
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
         },
         {
           "name": "bidder_token_account",
@@ -412,10 +416,6 @@
         },
         {
           "name": "leaf_owner",
-          "writable": true
-        },
-        {
-          "name": "leaf_delegate",
           "writable": true
         },
         {

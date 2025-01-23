@@ -8,6 +8,7 @@ import {
   NONCE_ACCOUNT_LENGTH,
   TransactionInstruction,
   Signer,
+  AccountMeta,
 } from '@solana/web3.js';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import {
@@ -51,6 +52,8 @@ import {
   DasApiAsset,
   DasApiAssetCreator,
 } from '@metaplex-foundation/digital-asset-standard-api';
+import { BN } from '@coral-xyz/anchor';
+import { bs58 } from '@coral-xyz/anchor/dist/cjs/utils/bytes';
 
 // Constants
 const MAX_DEPTH = 14;
@@ -80,6 +83,23 @@ export interface GetAuctionAddressesInput {
 export interface GetAuctionAddressesOutput {
   auctions: string[];
   total: number;
+}
+
+export interface proofHash {
+  root: number[];
+  dataHash: number[];
+  creatorHash: number[];
+  nonce: BN;
+  index: BN;
+}
+
+export interface RefundInput {
+  auctionAddress: string;
+  tokenMint: string;
+  bidderAddress: string;
+  merkleTree: string;
+  hashes: proofHash;
+  proofAccounts: AccountMeta[];
 }
 
 export class SolanaService {
@@ -423,6 +443,65 @@ export class SolanaService {
       };
     } catch (error) {
       log.error('Error initializing auction:', error as Error);
+      throw error;
+    }
+  }
+  public bufferToArray(buffer: Buffer): number[] {
+    const nums: number[] = [];
+    for (let i = 0; i < buffer.length; i++) {
+      nums.push(buffer[i]);
+    }
+    return nums;
+  }
+
+  public async getProofs(collectionMint: PublicKey, bidderAddress: PublicKey) {
+    const nfts = await this.umi.rpc.getAssetsByGroup({
+      groupKey: 'collection',
+      groupValue: collectionMint.toString(),
+    });
+    const bidderNfts = nfts.items.filter(
+      (nft) => nft.ownership.owner === bidderAddress.toString(),
+    );
+    const proofs = await Promise.all(
+      bidderNfts.map(async (nft) => {
+        const proof = await this.umi.rpc.getAssetProof(nft.id);
+        const proofAccounts = proof.proof.map((p) => {
+          return {
+            pubkey: new PublicKey(p.toString()),
+            isSigner: false,
+            isWritable: false,
+          };
+        });
+        const hashes: proofHash = {
+          root: this.bufferToArray(bs58.decode(proof.root.toString())),
+          dataHash: this.bufferToArray(
+            bs58.decode(nft.compression.data_hash.toString()),
+          ),
+          creatorHash: this.bufferToArray(
+            bs58.decode(nft.compression.creator_hash.toString()),
+          ),
+          nonce: new BN(nft.compression.leaf_id),
+          index: nft.compression.leaf_id,
+        };
+        return { proofAccounts, hashes };
+      }),
+    );
+    return proofs;
+  }
+
+  public async refund(input: RefundInput): Promise<{ signature: string }> {
+    try {
+      return this.anchorClient.refund(
+        new PublicKey(input.auctionAddress),
+        new PublicKey(input.bidderAddress),
+        new PublicKey(input.merkleTree),
+        input.hashes,
+        input.proofAccounts,
+        new PublicKey(input.tokenMint),
+        this.payer,
+      );
+    } catch (error) {
+      log.error('Error refunding:', error as Error);
       throw error;
     }
   }

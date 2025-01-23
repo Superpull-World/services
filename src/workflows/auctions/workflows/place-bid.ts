@@ -107,6 +107,15 @@ export async function placeBidWorkflowFunction(
       log.error('Error refreshing auction', { error });
     }
 
+    const monitorBid = getExternalWorkflowHandle(
+      `monitor-bid-${input.auctionAddress}-${input.bidderAddress}`,
+    );
+    try {
+      await monitorBid.signal('refreshBid');
+    } catch (error) {
+      log.error('Error refreshing bid', { error });
+    }
+
     setHandler(status, () => (submitResult?.success ? 'completed' : 'failed'));
     return (
       submitResult || {

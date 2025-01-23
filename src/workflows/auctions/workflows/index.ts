@@ -31,3 +31,4 @@ export {
   monitorBidWorkflowFunction,
   status as monitorBidStatus,
 } from './monitor-bid';
+export { refundWorkflowFunction, status as refundStatus } from './refund';

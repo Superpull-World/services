@@ -1,6 +1,7 @@
 import * as anchor from '@coral-xyz/anchor';
 import { Program } from '@coral-xyz/anchor';
 import {
+  AccountMeta,
   PublicKey,
   Signer,
   SystemProgram,
@@ -11,6 +12,7 @@ import { SuperpullProgram } from '../types/superpull_program';
 import IDL from '../idl/superpull_program.json';
 import {
   fetchTreeConfigFromSeeds,
+  MPL_BUBBLEGUM_PROGRAM_ID,
   mplBubblegum,
 } from '@metaplex-foundation/mpl-bubblegum';
 import {
@@ -51,7 +53,7 @@ interface InitializeAuctionAccounts {
 export class AnchorClient {
   program!: Program<SuperpullProgram>;
   umi!: Umi;
-  provider!: anchor.Provider;
+  provider: anchor.AnchorProvider;
 
   constructor(provider: anchor.AnchorProvider) {
     this.provider = provider;
@@ -343,6 +345,109 @@ export class AnchorClient {
     }
   }
 
+  async refund(
+    auctionAddress: PublicKey,
+    bidderAddress: PublicKey,
+    merkleTree: PublicKey,
+    hashes: {
+      root: number[];
+      dataHash: number[];
+      creatorHash: number[];
+      nonce: anchor.BN;
+      index: anchor.BN;
+    },
+    proof_accounts: AccountMeta[],
+    tokenMint: PublicKey,
+    payer: Signer,
+  ) {
+    const slot = await this.provider.connection.getSlot();
+    const [lookupTableInst, lookupTableAddress] =
+      web3.AddressLookupTableProgram.createLookupTable({
+        authority: payer.publicKey,
+        payer: payer.publicKey,
+        recentSlot: slot,
+      });
+    let tx = new web3.Transaction().add(lookupTableInst);
+    let txReceipt = await this.provider.sendAndConfirm(tx, [payer], {
+      skipPreflight: true,
+    });
+    console.log('🔍 Lookup Table Created:', txReceipt);
+    const extendInstruction = web3.AddressLookupTableProgram.extendLookupTable({
+      payer: payer.publicKey,
+      authority: payer.publicKey,
+      lookupTable: lookupTableAddress,
+      addresses: proof_accounts.map((account) => account.pubkey),
+    });
+    tx = new web3.Transaction().add(extendInstruction);
+    txReceipt = await this.provider.sendAndConfirm(tx);
+    console.log('🔍 Lookup Table Extended:', txReceipt);
+    const lookupTableAccount = (
+      await this.provider.connection.getAddressLookupTable(lookupTableAddress)
+    ).value;
+    if (!lookupTableAccount) {
+      throw new Error('Failed to fetch lookup table account');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    const bidAddress = await this.findBidAddress(auctionAddress, bidderAddress);
+    const bidderTokenAccount = getAssociatedTokenAddressSync(
+      tokenMint,
+      bidderAddress,
+    );
+    const auctionTokenAccount = getAssociatedTokenAddressSync(
+      tokenMint,
+      auctionAddress,
+      true,
+    );
+    const treeConfig = await fetchTreeConfigFromSeeds(this.umi, {
+      merkleTree: fromWeb3JsPublicKey(merkleTree),
+    });
+
+    const accounts = {
+      auction: auctionAddress,
+      bid: bidAddress,
+      bidder: bidderAddress,
+      payer: payer.publicKey,
+      bidderTokenAccount: bidderTokenAccount,
+      auctionTokenAccount: auctionTokenAccount,
+      treeConfig: treeConfig.publicKey,
+      merkleTree: merkleTree,
+      leafOwner: bidAddress,
+      tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID,
+      systemProgram: anchor.web3.SystemProgram.programId,
+      bubblegumProgram: MPL_BUBBLEGUM_PROGRAM_ID,
+      logWrapper: LOG_WRAPPER_PROGRAM_ID,
+      compressionProgram: COMPRESSION_PROGRAM_ID,
+    };
+
+    const connection = new web3.Connection(
+      this.provider.connection.rpcEndpoint,
+    );
+    const ix = await this.program.methods
+      .refund(hashes)
+      .accounts(accounts)
+      .remainingAccounts(proof_accounts)
+      .instruction();
+    const message = new web3.TransactionMessage({
+      payerKey: payer.publicKey,
+      recentBlockhash: (await this.provider.connection.getLatestBlockhash())
+        .blockhash,
+      instructions: [ix],
+    }).compileToV0Message([lookupTableAccount]);
+    const versionedTx = new web3.VersionedTransaction(message);
+    versionedTx.sign([payer]);
+    txReceipt = await connection.sendTransaction(versionedTx, {
+      skipPreflight: true,
+    });
+    console.log('🔍 Withdrawal Transaction:', txReceipt);
+    const confirmation = await connection.confirmTransaction(
+      txReceipt,
+      'confirmed',
+    );
+    console.log('🔍 Confirmation:', confirmation);
+    return { signature: txReceipt };
+  }
+
   async withdraw(
     auctionAddress: PublicKey,
     authority: PublicKey,
@@ -379,9 +484,7 @@ export class AnchorClient {
     // Create and send transaction for lookup table creation
     let tx = new web3.Transaction().add(createLookupTableInst[0]);
     const lookupTableAddress = createLookupTableInst[1];
-    let txReceipt = await (
-      this.program.provider as anchor.AnchorProvider
-    ).sendAndConfirm(tx, [payer], {
+    let txReceipt = await this.provider.sendAndConfirm(tx, [payer], {
       skipPreflight: true,
     });
     log.info('Lookup Table Created:', { txReceipt });
@@ -395,9 +498,7 @@ export class AnchorClient {
     });
 
     tx = new web3.Transaction().add(extendInstruction);
-    txReceipt = await (
-      this.program.provider as anchor.AnchorProvider
-    ).sendAndConfirm(tx, [payer], {
+    txReceipt = await this.provider.sendAndConfirm(tx, [payer], {
       skipPreflight: true,
     });
     log.info('Lookup Table Extended:', { txReceipt });

@@ -1,63 +1,69 @@
 import {
-  proxyActivities,
-  defineQuery,
-  setHandler,
-  getExternalWorkflowHandle,
-  startChild,
-  workflowInfo,
-  ParentClosePolicy,
-  WorkflowIdReusePolicy,
-  defineSignal,
   condition,
+  defineSignal,
+  getExternalWorkflowHandle,
+  ParentClosePolicy,
+  startChild,
+  WorkflowIdReusePolicy,
 } from '@temporalio/workflow';
-import { log } from '@temporalio/workflow';
-import type { WorkflowEntry } from '../../registry';
-import type { AuctionDetails, verifyUserJWT, withdraw } from '../activities';
+
+import { AuctionDetails } from '../activities/details';
+
+import {
+  defineQuery,
+  log,
+  proxyActivities,
+  setHandler,
+  workflowInfo,
+} from '@temporalio/workflow';
+import { WorkflowEntry } from '../../registry';
+import { getProofs, refund, verifyUserJWT } from '../activities';
 import { monitorAuctionWorkflowFunction } from './monitor-auction';
 
-// Define the input type for the workflow
-export interface WithdrawAuctionInput {
-  jwt: string;
+export interface RefundInput {
   auctionAddress: string;
-  authorityAddress: string;
+  bidderAddress: string;
+  jwt: string;
 }
 
-// Define the output type for the workflow
-export interface WithdrawAuctionOutput {
+export interface RefundOutput {
   status: 'success' | 'failed';
   message?: string;
   signature?: string;
 }
 
-const { withdraw: withdrawActivity, verifyUserJWT: verifyJWT } =
+const { verifyUserJWT: verifyJWT } = proxyActivities<{
+  verifyUserJWT: typeof verifyUserJWT;
+}>({
+  startToCloseTimeout: '1 minute',
+});
+
+const { getProofs: getProofsActivity, refund: refundActivity } =
   proxyActivities<{
-    withdraw: typeof withdraw;
-    verifyUserJWT: typeof verifyUserJWT;
+    getProofs: typeof getProofs;
+    refund: typeof refund;
   }>({
     startToCloseTimeout: '1 minute',
   });
 
 export const status = defineQuery<string>('status');
-
 export const monitorUpdate = defineSignal<[AuctionDetails]>('monitorUpdate');
 
-export interface WithdrawAuctionWorkflow
-  extends WorkflowEntry<WithdrawAuctionInput, WithdrawAuctionOutput> {
+export interface RefundWorkflow
+  extends WorkflowEntry<RefundInput, RefundOutput> {
   queries: {
     status: typeof status;
   };
 }
 
-export const withdrawAuctionWorkflowFunction = async (
-  input: WithdrawAuctionInput,
-): Promise<WithdrawAuctionOutput> => {
-  log.info('Starting withdraw auction workflow', { input });
+export const refundWorkflowFunction = async (
+  input: RefundInput,
+): Promise<RefundOutput> => {
   setHandler(status, () => 'verifying-jwt');
 
-  // First verify JWT
   const jwtVerification = await verifyJWT({
     jwt: input.jwt,
-    walletAddress: input.authorityAddress,
+    walletAddress: input.bidderAddress,
   });
 
   if (!jwtVerification.isValid) {
@@ -68,6 +74,7 @@ export const withdrawAuctionWorkflowFunction = async (
       message: jwtVerification.message || 'JWT verification failed',
     };
   }
+
   setHandler(status, () => 'verifying-jwt-success');
 
   const info = workflowInfo();
@@ -125,40 +132,23 @@ export const withdrawAuctionWorkflowFunction = async (
     };
   }
 
-  // Perform the withdrawal
-  setHandler(status, () => 'withdrawing');
-  const withdrawResult = await withdrawActivity(
-    auction.address,
-    input.authorityAddress,
+  setHandler(status, () => 'refunding');
+  const proofs = await getProofsActivity(
     auction.collectionMint,
-    auction.creators.map((creator) => creator.address),
-    auction.tokenMint,
+    input.bidderAddress,
   );
 
-  if (withdrawResult.status === 'failed') {
-    log.error('Withdrawal failed', { withdrawResult });
-    setHandler(status, () => 'withdrawal-failed');
-    return {
-      status: 'failed',
-      message: withdrawResult.message,
-    };
+  for (const proof of proofs) {
+    console.log('🔍 Proof:', proof);
+    await refundActivity({
+      auctionAddress: input.auctionAddress,
+      tokenMint: auction.tokenMint,
+      bidderAddress: input.bidderAddress,
+      merkleTree: auction.merkleTree,
+      proofAccounts: proof.proofAccounts,
+      hashes: proof.hashes,
+    });
   }
 
-  // Signal monitor auction workflow to refresh
-  const monitorAuction = getExternalWorkflowHandle(
-    `monitor-auction-${input.auctionAddress}`,
-  );
-  try {
-    await monitorAuction.signal('refreshAuction');
-  } catch (error) {
-    log.error('Error refreshing auction', { error });
-  }
-
-  log.info('Withdrawal completed successfully');
-  setHandler(status, () => 'completed');
-  return {
-    status: 'success',
-    message: 'Withdrawal completed successfully',
-    signature: withdrawResult.signature,
-  };
+  return { status: 'success' };
 };

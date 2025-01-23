@@ -40,6 +40,7 @@ import {
   createAuctionStatus,
   withdrawAuctionStatus,
   monitorBidStatus,
+  refundStatus,
 } from './auctions';
 import {
   placeBidWorkflowFunction,
@@ -70,6 +71,11 @@ import {
   monitorBidResult,
   monitorBidWorkflowFunction,
 } from './auctions/workflows/monitor-bid';
+import {
+  RefundInput,
+  refundWorkflowFunction,
+} from './auctions/workflows/refund';
+import { RefundOutput } from './auctions/workflows/refund';
 
 export type QueryResult =
   | string
@@ -176,6 +182,13 @@ interface WorkflowRegistry {
   withdrawAuction: WorkflowEntry<
     WithdrawAuctionInput,
     WithdrawAuctionOutput,
+    {
+      status: string;
+    }
+  >;
+  refund: WorkflowEntry<
+    RefundInput,
+    RefundOutput,
     {
       status: string;
     }
@@ -315,6 +328,13 @@ export const workflowRegistry: WorkflowRegistry = {
     config: {
       ...defaultConfig,
       workflowExecutionTimeout: '5 minutes',
+    },
+  },
+  refund: {
+    workflow: refundWorkflowFunction,
+    taskQueue: 'auction',
+    queries: {
+      status: refundStatus,
     },
   },
 };

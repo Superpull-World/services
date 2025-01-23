@@ -389,10 +389,14 @@ export type SuperpullProgram = {
         {
           "name": "bidder",
           "writable": true,
-          "signer": true,
           "relations": [
             "bid"
           ]
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
         },
         {
           "name": "bidderTokenAccount",
@@ -418,10 +422,6 @@ export type SuperpullProgram = {
         },
         {
           "name": "leafOwner",
-          "writable": true
-        },
-        {
-          "name": "leafDelegate",
           "writable": true
         },
         {
