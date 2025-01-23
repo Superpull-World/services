@@ -19,9 +19,11 @@ import type {
   getAuctions,
   getAuctionDetails,
   AuctionDetails,
+  BidDetails,
 } from '../activities';
 import { WorkflowEntry } from '../../registry';
 import { monitorAuctionWorkflowFunction } from './monitor-auction';
+import { monitorBidWorkflowFunction } from './monitor-bid';
 
 const {
   getAuctions: getAuctionsActivity,
@@ -62,37 +64,55 @@ export type GetAuctionDetailsWorkflow = WorkflowEntry<
   }
 >;
 
-export async function getAuctionsWorkflowFunction(): Promise<GetAuctionsOutput> {
-  let result: GetAuctionsOutput = [];
+export async function getAuctionsWorkflowFunction(
+  input: GetAuctionsInput,
+): Promise<GetAuctionsOutput> {
+  let auc_result: GetAuctionsOutput = [];
   setHandler(status, () => 'RUNNING');
-  setHandler(auctionsResult, () => result);
-
+  setHandler(auctionsResult, () => auc_result);
   // Get initial list of auctions with pagination
   const initialResult = await getAuctionsActivity();
-  result = initialResult;
+  auc_result = initialResult;
 
   // Track monitor updates
-  const monitorData = new Map<string, AuctionDetails>();
-
+  const auctionData = new Map<string, AuctionDetails>();
+  const bidData = new Map<string, BidDetails>();
   // Handle updates from monitor workflows
-  setHandler(monitorUpdate, (details: AuctionDetails) => {
+  setHandler(monitorUpdate, (details: AuctionDetails | BidDetails) => {
     log.info('Monitor update received', {
       auctionAddress: details.address,
     });
-    monitorData.set(details.address, details);
+    if (typeof details === 'object' && 'tokenMint' in details) {
+      auctionData.set(details.address, details);
+      const auctionsKeys = Array.from(auctionData.keys());
+      const auctions = auctionsKeys
+        .map((key) => auctionData.get(key))
+        .filter((auction) => auction !== undefined)
+        .filter((auction) => auction.tokenMint !== undefined)
+        .filter((auction) => auction.tokenMint !== '');
+      log.info('Monitor update processed', {
+        auctions,
+      });
+      auc_result = auctions;
+      // Update query handler to return latest result
+      setHandler(auctionsResult, () => auc_result);
+    } else if (typeof details === 'object' && 'bidder' in details) {
+      bidData.set(details.auction, details);
+      const bidsKeys = Array.from(bidData.keys());
+      const bids = bidsKeys
+        .map((key) => bidData.get(key))
+        .filter((bid) => bid !== undefined)
+        .filter((bid) => bid.address !== undefined)
+        .filter((bid) => bid.address !== '');
+      log.info('Monitor update processed', {
+        bids,
+      });
+      auc_result = auc_result.map((auction) => {
+        auction.bids = bids.filter((bid) => bid.auction === auction.address);
+        return auction;
+      });
+    }
     // Update result with latest data
-    const auctionsKeys = Array.from(monitorData.keys());
-    const auctions = auctionsKeys
-      .map((key) => monitorData.get(key))
-      .filter((auction) => auction !== undefined)
-      .filter((auction) => auction.tokenMint !== undefined)
-      .filter((auction) => auction.tokenMint !== '');
-    log.info('Monitor update processed', {
-      auctions,
-    });
-    result = auctions;
-    // Update query handler to return latest result
-    setHandler(auctionsResult, () => result);
   });
 
   // Get current workflow ID for passing to children
@@ -127,11 +147,45 @@ export async function getAuctionsWorkflowFunction(): Promise<GetAuctionsOutput> 
   );
 
   // Wait briefly for initial monitor data
-  await condition(() => monitorData.size >= initialResult.length, '1 minutes');
+  await condition(() => auctionData.size >= initialResult.length, '1 minutes');
 
+  await Promise.all(
+    auc_result.map(async (auction) => {
+      if (auction.address !== undefined) {
+        const workflowId = `monitor-bid-${auction.address}-${input.bidderAddress}`;
+        try {
+          await startChild(monitorBidWorkflowFunction, {
+            workflowId,
+            args: [
+              {
+                auctionAddress: auction.address,
+                bidderAddress: input.bidderAddress,
+                parentWorkflowId,
+              },
+            ],
+            taskQueue: 'auction',
+            workflowIdReusePolicy: WorkflowIdReusePolicy.ALLOW_DUPLICATE,
+            parentClosePolicy: ParentClosePolicy.ABANDON,
+          });
+        } catch {
+          const handle = getExternalWorkflowHandle(workflowId);
+          await handle.signal('updateParent', parentWorkflowId);
+        }
+      }
+    }),
+  );
+
+  log.info('Waiting for initial monitor data', {
+    auctionDataSize: auctionData.size,
+    initialResultLength: initialResult.length,
+    auctionSize: auc_result.length,
+  });
+  await condition(() => bidData.size >= auc_result.length, '1 minutes');
+
+  setHandler(auctionsResult, () => auc_result);
   setHandler(status, () => 'completed');
 
-  return result;
+  return auc_result;
 }
 
 export async function getAuctionDetailsWorkflowFunction(

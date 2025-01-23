@@ -5,7 +5,7 @@ export {
 export {
   status as detailsStatus,
   getAuctionsWorkflowFunction,
-} from './details';
+} from './get-auctions';
 export {
   status as tokenMintsStatus,
   getAcceptedTokenMintsWorkflowFunction,
@@ -27,3 +27,7 @@ export {
   withdrawAuctionWorkflowFunction,
   status as withdrawAuctionStatus,
 } from './withdraw-auction';
+export {
+  monitorBidWorkflowFunction,
+  status as monitorBidStatus,
+} from './monitor-bid';

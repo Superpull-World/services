@@ -18,7 +18,7 @@ import {
   auctionsResult as getAuctionsResult,
   status as getAuctionDetailsStatus,
   detailsResult as getAuctionDetailsResult,
-} from './auctions/workflows/details';
+} from './auctions/workflows/get-auctions';
 import {
   getAcceptedTokenMintsWorkflowFunction,
   status as getAcceptedTokenMintsStatus,
@@ -39,6 +39,7 @@ import {
   type AuctionDetails,
   createAuctionStatus,
   withdrawAuctionStatus,
+  monitorBidStatus,
 } from './auctions';
 import {
   placeBidWorkflowFunction,
@@ -47,6 +48,7 @@ import {
   submissionResult as placeBidSubmissionResult,
 } from './auctions/workflows/place-bid';
 import type {
+  BidDetails,
   PlaceBidInput,
   PlaceBidOutput,
   SubmitSignedBidOutput,
@@ -63,6 +65,11 @@ import {
   WithdrawAuctionOutput,
   withdrawAuctionWorkflowFunction,
 } from './auctions/workflows/withdraw-auction';
+import {
+  MonitorBidInput,
+  monitorBidResult,
+  monitorBidWorkflowFunction,
+} from './auctions/workflows/monitor-bid';
 
 export type QueryResult =
   | string
@@ -156,6 +163,14 @@ interface WorkflowRegistry {
     {
       status: string;
       auctionResult: AuctionDetails | null;
+    }
+  >;
+  monitorBid: WorkflowEntry<
+    MonitorBidInput,
+    BidDetails | null,
+    {
+      status: string;
+      bidResult: BidDetails | null;
     }
   >;
   withdrawAuction: WorkflowEntry<
@@ -273,6 +288,18 @@ export const workflowRegistry: WorkflowRegistry = {
     queries: {
       status: monitorAuctionStatus,
       auctionResult: monitorAuctionResult,
+    },
+    config: {
+      ...defaultConfig,
+      workflowExecutionTimeout: '30 minutes',
+    },
+  },
+  monitorBid: {
+    workflow: monitorBidWorkflowFunction,
+    taskQueue: 'auction',
+    queries: {
+      status: monitorBidStatus,
+      bidResult: monitorBidResult,
     },
     config: {
       ...defaultConfig,

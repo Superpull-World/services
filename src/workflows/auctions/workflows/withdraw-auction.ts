@@ -89,6 +89,7 @@ export const withdrawAuctionWorkflowFunction = async (
     totalValueLocked: 0,
     minimumItems: 0,
     deadline: 0,
+    bids: [],
   };
   setHandler(monitorUpdate, (auctionDetails: AuctionDetails) => {
     auction = auctionDetails;

@@ -45,7 +45,6 @@ import {
   getMint,
   getAccount,
   getOrCreateAssociatedTokenAccount,
-  createAccount,
   getMinimumBalanceForRentExemptAccount,
 } from '@solana/spl-token';
 import {
@@ -428,11 +427,34 @@ export class SolanaService {
     }
   }
 
+  public async getBidDetails(
+    auctionAddress: string,
+    bidderAddress: string,
+  ): Promise<{
+    address: string;
+    auction: string;
+    bidder: string;
+    amount: number;
+    count: number;
+  }> {
+    const bidAddress = await this.anchorClient.findBidAddress(
+      new PublicKey(auctionAddress),
+      new PublicKey(bidderAddress),
+    );
+    const bidState = await this.anchorClient.getBidState(bidAddress);
+    return {
+      address: bidAddress.toString(),
+      auction: auctionAddress,
+      bidder: bidState.bidder.toString(),
+      amount: bidState.amount.toNumber(),
+      count: bidState.count,
+    };
+  }
+
   public async getAuctionDetails(auctionAddress: string): Promise<{
     address: string;
     state: anchor.IdlAccounts<SuperpullProgram>['auctionState'];
     creators: DasApiAssetCreator[];
-    currentPrice: number;
   }> {
     try {
       log.info('Fetching auction details', {
@@ -442,10 +464,6 @@ export class SolanaService {
       const state = await this.anchorClient.getAuctionState(address);
       log.info('Auction state fetched', {
         state,
-      });
-      const currentPrice = await this.anchorClient.getCurrentPrice(address);
-      log.info('Current price fetched', {
-        currentPrice,
       });
       const asset = await this.umi.rpc.getAsset(
         fromWeb3JsPublicKey(state.collectionMint),
@@ -458,7 +476,6 @@ export class SolanaService {
         address: auctionAddress,
         state,
         creators: asset.creators,
-        currentPrice: currentPrice.price.toNumber(),
       };
     } catch (error) {
       log.error('Error getting auction details:', error as Error);
@@ -612,7 +629,6 @@ export class SolanaService {
         };
       }
       log.info('Auction details fetched', {
-        currentPrice: auction.currentPrice,
         auctionState: auction.state,
       });
 

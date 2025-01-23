@@ -403,13 +403,47 @@
           "writable": true
         },
         {
+          "name": "tree_config",
+          "writable": true
+        },
+        {
+          "name": "merkle_tree",
+          "writable": true
+        },
+        {
+          "name": "leaf_owner",
+          "writable": true
+        },
+        {
+          "name": "leaf_delegate",
+          "writable": true
+        },
+        {
           "name": "token_program"
         },
         {
           "name": "system_program"
+        },
+        {
+          "name": "bubblegum_program"
+        },
+        {
+          "name": "log_wrapper"
+        },
+        {
+          "name": "compression_program"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "refund_data",
+          "type": {
+            "defined": {
+              "name": "RefundData"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "withdraw",
@@ -990,6 +1024,49 @@
           {
             "name": "supply",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RefundData",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "data_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "creator_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "index",
+            "type": "u32"
           }
         ]
       }

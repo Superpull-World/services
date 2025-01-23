@@ -280,6 +280,35 @@ export class AnchorClient {
     return auctionPda;
   }
 
+  async findBidAddress(auctionAddress: PublicKey, bidderAddress: PublicKey) {
+    const [bidAddress] = PublicKey.findProgramAddressSync(
+      [Buffer.from('bid'), auctionAddress.toBuffer(), bidderAddress.toBuffer()],
+      this.program.programId,
+    );
+    return bidAddress;
+  }
+
+  async getBidState(bidAddress: PublicKey) {
+    log.info('Getting bid state', {
+      bidAddress: bidAddress.toString(),
+    });
+    try {
+      const bidState = await this.program.account.bidState.fetch(
+        bidAddress,
+        'confirmed',
+      );
+      log.info('Bid state retrieved', {
+        bidState,
+      });
+      return bidState;
+    } catch (error) {
+      log.error('Error fetching bid state', {
+        error,
+      });
+      throw error;
+    }
+  }
+
   async getAuctionState(auctionAddress: PublicKey) {
     log.info('Getting auction state', {
       auctionAddress: auctionAddress.toString(),

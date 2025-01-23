@@ -8,11 +8,14 @@ export interface AuctionBasicInfo {
 }
 
 export interface GetAuctionsInput {
+  bidderAddress: string;
   limit?: number;
   offset?: number;
 }
 
 export type GetAuctionsOutput = Partial<AuctionDetails>[];
+
+export type GetBidsOutput = Partial<BidDetails>[];
 
 export interface GetAuctionDetailsInput {
   auctionAddress: string;
@@ -20,6 +23,23 @@ export interface GetAuctionDetailsInput {
 
 export interface GetAuctionDetailsOutput {
   auction: AuctionDetails | null;
+}
+
+export interface GetBidDetailsInput {
+  auctionAddress: string;
+  bidderAddress: string;
+}
+
+export interface GetBidDetailsOutput {
+  bid: BidDetails | null;
+}
+
+export interface BidDetails {
+  address: string;
+  auction: string;
+  bidder: string;
+  amount: number;
+  count: number;
 }
 
 export interface AuctionDetails {
@@ -45,6 +65,7 @@ export interface AuctionDetails {
   deadline: number;
   isGraduated: boolean;
   currentPrice: number;
+  bids: Partial<BidDetails>[];
 }
 
 export async function getAuctions(): Promise<GetAuctionsOutput> {
@@ -94,6 +115,7 @@ export async function getAuctionDetails(
           deadline: auction.state.deadline.toNumber(),
           isGraduated: auction.state.isGraduated,
           currentPrice: 0, // Will be calculated if needed
+          bids: [],
         },
       };
     } catch (error) {
@@ -119,6 +141,7 @@ export async function getAuctionDetails(
           deadline: 0,
           isGraduated: false,
           currentPrice: 0,
+          bids: [],
         },
       };
     }
@@ -126,5 +149,35 @@ export async function getAuctionDetails(
     // Log service error but continue
     log.error('Error in getAuctionDetails activity:', error as Error);
     return { auction: null };
+  }
+}
+
+export async function getBidDetails(
+  input: GetBidDetailsInput,
+): Promise<GetBidDetailsOutput> {
+  try {
+    const solanaService = SolanaService.getInstance();
+    try {
+      const bid = await solanaService.getBidDetails(
+        input.auctionAddress,
+        input.bidderAddress,
+      );
+      return { bid };
+    } catch (error) {
+      log.error('Error in getBidDetails activity:', error as Error);
+      return {
+        bid: {
+          address: '',
+          auction: '',
+          bidder: '',
+          amount: 0,
+          count: 0,
+        },
+      };
+    }
+  } catch (error) {
+    // Log service error but continue
+    log.error('Error in getBidDetails activity:', error as Error);
+    return { bid: null };
   }
 }

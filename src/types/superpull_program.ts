@@ -409,13 +409,47 @@ export type SuperpullProgram = {
           "writable": true
         },
         {
+          "name": "treeConfig",
+          "writable": true
+        },
+        {
+          "name": "merkleTree",
+          "writable": true
+        },
+        {
+          "name": "leafOwner",
+          "writable": true
+        },
+        {
+          "name": "leafDelegate",
+          "writable": true
+        },
+        {
           "name": "tokenProgram"
         },
         {
           "name": "systemProgram"
+        },
+        {
+          "name": "bubblegumProgram"
+        },
+        {
+          "name": "logWrapper"
+        },
+        {
+          "name": "compressionProgram"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "refundData",
+          "type": {
+            "defined": {
+              "name": "refundData"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "withdraw",
@@ -996,6 +1030,49 @@ export type SuperpullProgram = {
           {
             "name": "supply",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "refundData",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "dataHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "creatorHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "index",
+            "type": "u32"
           }
         ]
       }
