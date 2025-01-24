@@ -468,7 +468,7 @@ export class AnchorClient {
       )
       .instruction();
     const computeUnitLimit2 = ComputeBudgetProgram.setComputeUnitLimit({
-      units: 70000,
+      units: 90000,
     });
     const message = new web3.TransactionMessage({
       payerKey: payer.publicKey,
