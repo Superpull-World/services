@@ -115,7 +115,7 @@ export async function monitorBidWorkflowFunction(
           shouldRefresh = false;
         }
         // Wait for either refresh signal or timeout
-        await condition(() => shouldRefresh, '5 minutes');
+        await condition(() => shouldRefresh, '1 minutes');
         shouldRefresh = true;
       }
     });

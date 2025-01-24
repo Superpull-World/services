@@ -304,7 +304,7 @@ export const workflowRegistry: WorkflowRegistry = {
     },
     config: {
       ...defaultConfig,
-      workflowExecutionTimeout: '30 minutes',
+      workflowExecutionTimeout: '5 minutes',
     },
   },
   monitorBid: {
@@ -316,7 +316,8 @@ export const workflowRegistry: WorkflowRegistry = {
     },
     config: {
       ...defaultConfig,
-      workflowExecutionTimeout: '30 minutes',
+      workflowExecutionTimeout: '5 minutes',
+      workflowRunTimeout: '5 minutes',
     },
   },
   withdrawAuction: {
@@ -328,6 +329,7 @@ export const workflowRegistry: WorkflowRegistry = {
     config: {
       ...defaultConfig,
       workflowExecutionTimeout: '5 minutes',
+      workflowRunTimeout: '5 minutes',
     },
   },
   refund: {

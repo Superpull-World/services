@@ -10,6 +10,7 @@ import {
   workflowInfo,
   getExternalWorkflowHandle,
   log,
+  CancellationScope,
 } from '@temporalio/workflow';
 import type {
   GetAuctionsInput,
@@ -137,17 +138,33 @@ export async function getAuctionsWorkflowFunction(
             taskQueue: 'auction',
             workflowIdReusePolicy: WorkflowIdReusePolicy.ALLOW_DUPLICATE,
             parentClosePolicy: ParentClosePolicy.ABANDON,
+            workflowRunTimeout: '5 minutes',
+            workflowTaskTimeout: '5 minutes',
+            workflowExecutionTimeout: '5 minutes',
           });
         } catch {
           const handle = getExternalWorkflowHandle(workflowId);
-          await handle.signal('updateParent', parentWorkflowId);
+          try {
+            await handle.signal('updateParent', parentWorkflowId);
+          } catch (error) {
+            log.error('Error updating parent workflow', { error });
+          }
         }
       }
     }),
   );
 
   // Wait briefly for initial monitor data
-  await condition(() => auctionData.size >= initialResult.length, '1 minutes');
+  try {
+    await CancellationScope.cancellable(async () => {
+      await condition(
+        () => auctionData.size >= initialResult.length,
+        '15 seconds',
+      );
+    });
+  } catch {
+    log.info('Waiting for auction workflows cancelled');
+  }
 
   await Promise.all(
     auc_result.map(async (auction) => {
@@ -166,10 +183,17 @@ export async function getAuctionsWorkflowFunction(
             taskQueue: 'auction',
             workflowIdReusePolicy: WorkflowIdReusePolicy.ALLOW_DUPLICATE,
             parentClosePolicy: ParentClosePolicy.ABANDON,
+            workflowRunTimeout: '5 minutes',
+            workflowTaskTimeout: '5 minutes',
+            workflowExecutionTimeout: '5 minutes',
           });
         } catch {
           const handle = getExternalWorkflowHandle(workflowId);
-          await handle.signal('updateParent', parentWorkflowId);
+          try {
+            await handle.signal('updateParent', parentWorkflowId);
+          } catch (error) {
+            log.error('Error updating parent workflow', { error });
+          }
         }
       }
     }),
@@ -180,7 +204,13 @@ export async function getAuctionsWorkflowFunction(
     initialResultLength: initialResult.length,
     auctionSize: auc_result.length,
   });
-  await condition(() => bidData.size >= auc_result.length, '1 minutes');
+  try {
+    await CancellationScope.cancellable(async () => {
+      await condition(() => bidData.size >= auc_result.length, '15 seconds');
+    });
+  } catch {
+    log.info('Waitinf for bid workflows cancelled');
+  }
 
   setHandler(auctionsResult, () => auc_result);
   setHandler(status, () => 'completed');
