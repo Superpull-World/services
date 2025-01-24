@@ -5,6 +5,8 @@ import {
   Signer,
   SystemProgram,
   TransactionInstruction,
+  ComputeBudgetProgram,
+  Transaction,
 } from '@solana/web3.js';
 import { log } from '@temporalio/activity';
 import { SuperpullProgram } from '../types/superpull_program';
@@ -80,6 +82,7 @@ export class AnchorClient {
     deadline: number,
     tokenMint: PublicKey,
     authority_basis_point: number,
+    payer: Signer,
   ): Promise<{ auctionAddress: PublicKey; signature: string }> {
     const auction_mint = AUCTION_MINTS.find(
       (mint) => mint.mint.toString() === tokenMint.toString(),
@@ -117,7 +120,7 @@ export class AnchorClient {
       systemProgram: SystemProgram.programId,
     };
 
-    const tx = await this.program.methods
+    const instruction = await this.program.methods
       .initializeAuction(
         new anchor.BN(basePrice * 10 ** auction_mint.decimals),
         new anchor.BN(priceIncrement * 10 ** auction_mint.decimals),
@@ -127,11 +130,25 @@ export class AnchorClient {
         new anchor.BN(authority_basis_point),
       )
       .accounts(accounts)
-      .rpc();
+      .instruction();
+
+    const computeBudget = ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: 1,
+    });
+    const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 30000,
+    });
+
+    const transaction = new Transaction().add(
+      computeUnitLimit,
+      computeBudget,
+      instruction,
+    );
+    const signature = await this.provider.sendAndConfirm(transaction, [payer]);
 
     return {
       auctionAddress,
-      signature: tx,
+      signature,
     };
   }
 
@@ -361,7 +378,19 @@ export class AnchorClient {
         payer: payer.publicKey,
         recentSlot: slot,
       });
-    let tx = new web3.Transaction().add(lookupTableInst);
+
+    const computeBudget = ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: 1,
+    });
+    const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 20000,
+    });
+
+    let tx = new web3.Transaction().add(
+      computeUnitLimit,
+      computeBudget,
+      lookupTableInst,
+    );
     let txReceipt = await this.provider.sendAndConfirm(tx, [payer], {
       skipPreflight: true,
     });
@@ -372,7 +401,11 @@ export class AnchorClient {
       lookupTable: lookupTableAddress,
       addresses: proof_accounts.map((account) => new PublicKey(account)),
     });
-    tx = new web3.Transaction().add(extendInstruction);
+    tx = new web3.Transaction().add(
+      computeUnitLimit,
+      computeBudget,
+      extendInstruction,
+    );
     txReceipt = await this.provider.sendAndConfirm(tx);
     console.log('🔍 Lookup Table Extended:', txReceipt);
     const lookupTableAccount = (
@@ -434,11 +467,14 @@ export class AnchorClient {
         })),
       )
       .instruction();
+    const computeUnitLimit2 = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 70000,
+    });
     const message = new web3.TransactionMessage({
       payerKey: payer.publicKey,
       recentBlockhash: (await this.provider.connection.getLatestBlockhash())
         .blockhash,
-      instructions: [ix],
+      instructions: [computeUnitLimit2, computeBudget, ix],
     }).compileToV0Message([lookupTableAccount]);
     const versionedTx = new web3.VersionedTransaction(message);
     versionedTx.sign([payer]);
@@ -487,10 +523,21 @@ export class AnchorClient {
         recentSlot: slot,
       });
 
+    const computeBudget = ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: 1,
+    });
+    const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 20000,
+    });
+
     // Create and send transaction for lookup table creation
-    let tx = new web3.Transaction().add(createLookupTableInst[0]);
+    let tx = new web3.Transaction().add(
+      computeUnitLimit,
+      computeBudget,
+      createLookupTableInst[0],
+    );
     const lookupTableAddress = createLookupTableInst[1];
-    let txReceipt = await this.provider.sendAndConfirm(tx, [payer], {
+    const txReceipt = await this.provider.sendAndConfirm(tx, [payer], {
       skipPreflight: true,
     });
     log.info('Lookup Table Created:', { txReceipt });
@@ -503,11 +550,15 @@ export class AnchorClient {
       addresses: creators_token_accounts,
     });
 
-    tx = new web3.Transaction().add(extendInstruction);
-    txReceipt = await this.provider.sendAndConfirm(tx, [payer], {
+    tx = new web3.Transaction().add(
+      computeUnitLimit,
+      computeBudget,
+      extendInstruction,
+    );
+    const extendReceipt = await this.provider.sendAndConfirm(tx, [payer], {
       skipPreflight: true,
     });
-    log.info('Lookup Table Extended:', { txReceipt });
+    log.info('Lookup Table Extended:', { extendReceipt });
 
     // Get lookup table account
     const lookupTableAccount = (
@@ -552,6 +603,10 @@ export class AnchorClient {
       )
       .instruction();
 
+    const computeUnitLimit2 = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 60000,
+    });
+
     // Create versioned transaction
     const { blockhash } =
       await this.program.provider.connection.getLatestBlockhash();
@@ -559,7 +614,7 @@ export class AnchorClient {
     const message = new web3.TransactionMessage({
       payerKey: payer.publicKey,
       recentBlockhash: blockhash,
-      instructions: [withdrawInstruction],
+      instructions: [computeUnitLimit2, computeBudget, withdrawInstruction],
     }).compileToV0Message([lookupTableAccount]);
 
     const versionedTx = new web3.VersionedTransaction(message);

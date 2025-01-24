@@ -97,6 +97,7 @@ export async function monitorBidWorkflowFunction(
           continue;
         }
       }
+      return bidData.bid;
     } catch (error) {
       // Log error but continue monitoring
       console.error('Error fetching bid details:', error);
@@ -107,7 +108,10 @@ export async function monitorBidWorkflowFunction(
     await CancellationScope.cancellable(async () => {
       while (true) {
         if (shouldRefresh) {
-          await fetchAndNotify();
+          const bid = await fetchAndNotify();
+          if (!bid || bid.address === '') {
+            break;
+          }
           shouldRefresh = false;
         }
         // Wait for either refresh signal or timeout

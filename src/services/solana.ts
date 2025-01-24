@@ -8,6 +8,7 @@ import {
   NONCE_ACCOUNT_LENGTH,
   TransactionInstruction,
   Signer,
+  ComputeBudgetProgram,
 } from '@solana/web3.js';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import {
@@ -37,6 +38,8 @@ import {
 import {
   fromWeb3JsKeypair,
   fromWeb3JsPublicKey,
+  toWeb3JsKeypair,
+  toWeb3JsPublicKey,
 } from '@metaplex-foundation/umi-web3js-adapters';
 import { log } from '@temporalio/activity';
 import { AnchorClient } from './anchor-client';
@@ -189,11 +192,45 @@ export class SolanaService {
             creators: none(),
             collection: none(),
             uses: none(),
+          }).getInstructions();
+
+          const computeBudget = ComputeBudgetProgram.setComputeUnitPrice({
+            microLamports: 1,
+          });
+          const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
+            units: 20000,
+          });
+          const instructions = builder.map((instruction) => {
+            return new TransactionInstruction({
+              keys: instruction.keys.map((key) => ({
+                pubkey: new PublicKey(key.pubkey),
+                isSigner: key.isSigner,
+                isWritable: key.isWritable,
+              })),
+              programId: toWeb3JsPublicKey(instruction.programId),
+              data: Buffer.from(instruction.data),
+            });
           });
 
-          await builder.sendAndConfirm(this.umi);
+          const transaction = new Transaction().add(
+            computeBudget,
+            computeUnitLimit,
+            ...instructions,
+          );
+          transaction.feePayer = this.payer.publicKey;
+          transaction.recentBlockhash = (
+            await this.connection.getLatestBlockhash()
+          ).blockhash;
+          transaction.sign(this.payer);
 
-          log.info('Collection mint created');
+          const result = await this.connection.sendTransaction(transaction, [
+            this.payer,
+          ]);
+          await this.connection.confirmTransaction(result);
+
+          log.info('Collection mint created', {
+            txId: result,
+          });
         } else {
           log.info('Collection mint already exists');
         }
@@ -223,7 +260,7 @@ export class SolanaService {
         maxDepth: MAX_DEPTH.toString(),
         maxBufferSize: MAX_BUFFER_SIZE.toString(),
       };
-      log.debug('Creating Merkle tree', debugLogData);
+      log.info('Creating Merkle tree', debugLogData);
 
       // Create the tree with default parameters for compressed NFTs
       const treeBuilder = await createTree(this.umi, {
@@ -233,8 +270,44 @@ export class SolanaService {
         merkleTree: merkleTreeKeypair,
       });
 
-      // Send and confirm the tree creation
-      await treeBuilder.sendAndConfirm(this.umi);
+      const computeBudget = ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: 1,
+      });
+      const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
+        units: 90000,
+      });
+
+      const instructions = treeBuilder.getInstructions().map((instruction) => {
+        return new TransactionInstruction({
+          keys: instruction.keys.map((key) => ({
+            pubkey: new PublicKey(key.pubkey),
+            isSigner: key.isSigner,
+            isWritable: key.isWritable,
+          })),
+          programId: toWeb3JsPublicKey(instruction.programId),
+          data: Buffer.from(instruction.data),
+        });
+      });
+
+      const transaction = new Transaction().add(
+        computeUnitLimit,
+        computeBudget,
+        ...instructions,
+      );
+      transaction.feePayer = this.payer.publicKey;
+      transaction.recentBlockhash = (
+        await this.connection.getLatestBlockhash()
+      ).blockhash;
+      transaction.sign(this.payer, toWeb3JsKeypair(merkleTreeKeypair));
+
+      const result = await this.connection.sendTransaction(
+        transaction,
+        [this.payer, toWeb3JsKeypair(merkleTreeKeypair)],
+        {
+          skipPreflight: true,
+        },
+      );
+      await this.connection.confirmTransaction(result);
 
       const infoLogData = {
         treeAddress: merkleTreeKeypair.publicKey.toString(),
@@ -295,14 +368,51 @@ export class SolanaService {
         uses: none(),
       });
 
-      const result = await builder.sendAndConfirm(this.umi);
+      const computeBudget = ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: 1,
+      });
+      const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
+        units: 180000,
+      });
+
+      const instructions = builder.getInstructions().map((instruction) => {
+        return new TransactionInstruction({
+          keys: instruction.keys.map((key) => ({
+            pubkey: new PublicKey(key.pubkey),
+            isSigner: key.isSigner,
+            isWritable: key.isWritable,
+          })),
+          programId: toWeb3JsPublicKey(instruction.programId),
+          data: Buffer.from(instruction.data),
+        });
+      });
+
+      const transaction = new Transaction().add(
+        computeUnitLimit,
+        computeBudget,
+        ...instructions,
+      );
+      transaction.feePayer = this.payer.publicKey;
+      transaction.recentBlockhash = (
+        await this.connection.getLatestBlockhash()
+      ).blockhash;
+      transaction.sign(this.payer, toWeb3JsKeypair(collectionSigner));
+
+      const result = await this.connection.sendTransaction(
+        transaction,
+        [this.payer, toWeb3JsKeypair(collectionSigner)],
+        {
+          skipPreflight: true,
+        },
+      );
+      await this.connection.confirmTransaction(result);
 
       // Create merkle tree for the auction
       const merkleTree = await this.createMerkleTree();
 
       return {
         collectionMint: new PublicKey(collectionSigner.publicKey),
-        txId: result.signature.toString(),
+        txId: result,
         merkleTree,
       };
     } catch (error) {
@@ -335,14 +445,44 @@ export class SolanaService {
         collectionMint: fromWeb3JsPublicKey(this.collectionMint.publicKey),
         metadata: metadata,
       });
-      const result = await verifyBuilder.sendAndConfirm(this.umi, {
-        send: {
-          skipPreflight: true,
-        },
+
+      const computeBudget = ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: 1,
+      });
+      const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
+        units: 50000,
       });
 
+      const instructions = verifyBuilder.getInstructions().map((instruction) => {
+        return new TransactionInstruction({
+          keys: instruction.keys.map((key) => ({
+            pubkey: new PublicKey(key.pubkey),
+            isSigner: key.isSigner,
+            isWritable: key.isWritable,
+          })),
+          programId: toWeb3JsPublicKey(instruction.programId),
+          data: Buffer.from(instruction.data),
+        });
+      });
+
+      const transaction = new Transaction().add(
+        computeUnitLimit,
+        computeBudget,
+        ...instructions,
+      );
+      transaction.feePayer = this.payer.publicKey;
+      transaction.recentBlockhash = (
+        await this.connection.getLatestBlockhash()
+      ).blockhash;
+      transaction.sign(this.payer, this.collectionMint);
+
+      const result = await this.connection.sendTransaction(transaction, [
+        this.payer,
+      ]);
+      await this.connection.confirmTransaction(result);
+
       return {
-        txId: result.signature.toString(),
+        txId: result,
       };
     } catch (error) {
       log.error('Error verifying collection:', error as Error);
@@ -365,21 +505,56 @@ export class SolanaService {
         merkleTree: merkleTree.toString(),
         delegate: auctionPda.toString(),
       });
+
+      const computeBudget = ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: 1,
+      });
+      const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
+        units: 20000,
+      });
+
+      // First transaction: Delegate tree authority
       const setTreeDelegateBuilder = setTreeDelegate(this.umi, {
         newTreeDelegate: fromWeb3JsPublicKey(auctionPda),
         merkleTree: fromWeb3JsPublicKey(merkleTree),
       });
-      await setTreeDelegateBuilder.sendAndConfirm(this.umi, {
-        send: {
-          skipPreflight: true,
-        },
+
+      const delegateInstructions = setTreeDelegateBuilder.getInstructions().map((instruction) => {
+        return new TransactionInstruction({
+          keys: instruction.keys.map((key) => ({
+            pubkey: new PublicKey(key.pubkey),
+            isSigner: key.isSigner,
+            isWritable: key.isWritable,
+          })),
+          programId: toWeb3JsPublicKey(instruction.programId),
+          data: Buffer.from(instruction.data),
+        });
+      });
+
+      const delegateTransaction = new Transaction().add(
+        computeUnitLimit,
+        computeBudget,
+        ...delegateInstructions,
+      );
+      delegateTransaction.feePayer = this.payer.publicKey;
+      delegateTransaction.recentBlockhash = (
+        await this.connection.getLatestBlockhash()
+      ).blockhash;
+      delegateTransaction.sign(this.payer);
+
+      const delegateResult = await this.connection.sendTransaction(delegateTransaction, [
+        this.payer,
+      ], {
+        skipPreflight: true,
       });
 
       log.info('Tree authority delegated', {
         merkleTree: merkleTree.toString(),
         delegate: auctionPda.toString(),
+        txId: delegateResult,
       });
 
+      // Second transaction: Update collection authority
       log.info('Updating collection updateauthority', {
         collectionMint: collectionMint.toString(),
         auctionPda: auctionPda.toString(),
@@ -394,14 +569,41 @@ export class SolanaService {
         newUpdateAuthority: fromWeb3JsPublicKey(auctionPda),
       });
 
-      const result = await updateBuilder.sendAndConfirm(this.umi);
+      const updateInstructions = updateBuilder.getInstructions().map((instruction) => {
+        return new TransactionInstruction({
+          keys: instruction.keys.map((key) => ({
+            pubkey: new PublicKey(key.pubkey),
+            isSigner: key.isSigner,
+            isWritable: key.isWritable,
+          })),
+          programId: toWeb3JsPublicKey(instruction.programId),
+          data: Buffer.from(instruction.data),
+        });
+      });
+
+      const updateTransaction = new Transaction().add(
+        computeUnitLimit,
+        computeBudget,
+        ...updateInstructions,
+      );
+      updateTransaction.feePayer = this.payer.publicKey;
+      updateTransaction.recentBlockhash = (
+        await this.connection.getLatestBlockhash()
+      ).blockhash;
+      updateTransaction.sign(this.payer);
+
+      const updateResult = await this.connection.sendTransaction(updateTransaction, [
+        this.payer,
+      ], {
+        skipPreflight: true,
+      });
 
       log.info('Collection authority updated', {
-        txId: result.signature.toString(),
+        txId: updateResult,
       });
 
       return {
-        txId: result.signature.toString(),
+        txId: updateResult,
       };
     } catch (error) {
       log.error('Error updating collection authority:', error as Error);
@@ -433,6 +635,7 @@ export class SolanaService {
         deadline,
         tokenMint,
         authorityBasisPoint,
+        this.payer,
       );
 
       return {
@@ -594,7 +797,18 @@ export class SolanaService {
 
     // First create and send the transaction to create the nonce account
     const setupTx = new Transaction();
-    setupTx.add(createNonceAccountIx, initializeNonceIx);
+    const computeBudget = ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: 1,
+    });
+    const computeUnitLimit = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 1000,
+    });
+    setupTx.add(
+      computeUnitLimit,
+      computeBudget,
+      createNonceAccountIx,
+      initializeNonceIx,
+    );
     setupTx.feePayer = this.payer.publicKey;
 
     const { blockhash, lastValidBlockHeight } =
@@ -626,10 +840,17 @@ export class SolanaService {
 
     // Get the instruction that uses the nonce
     const instruction = await getInstruction(this.umi, this.payer);
-
+    const computeBudget2 = ComputeBudgetProgram.setComputeUnitPrice({
+      microLamports: 1,
+    });
+    const computeUnitLimit2 = ComputeBudgetProgram.setComputeUnitLimit({
+      units: 100000,
+    });
     // Create the transaction
     const transaction = new Transaction();
     transaction.add(advanceNonceIx);
+    transaction.add(computeUnitLimit2);
+    transaction.add(computeBudget2);
     transaction.add(instruction);
     transaction.feePayer = this.payer.publicKey;
 
@@ -651,6 +872,9 @@ export class SolanaService {
         transaction.serialize(),
         { skipPreflight: true },
       );
+      log.info('Transaction sent', {
+        signature,
+      });
       const blockhash = await this.connection.getLatestBlockhash();
 
       // Wait for confirmation

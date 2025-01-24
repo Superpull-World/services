@@ -168,7 +168,7 @@ export async function getBidDetails(
       return {
         bid: {
           address: '',
-          auction: '',
+          auction: input.auctionAddress,
           bidder: '',
           amount: 0,
           count: 0,

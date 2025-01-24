@@ -95,6 +95,7 @@ export async function monitorAuctionWorkflowFunction(
           continue;
         }
       }
+      return auctionData.auction;
     } catch (error) {
       // Log error but continue monitoring
       console.error('Error fetching auction details:', error);
@@ -105,7 +106,10 @@ export async function monitorAuctionWorkflowFunction(
     await CancellationScope.cancellable(async () => {
       while (true) {
         if (shouldRefresh) {
-          await fetchAndNotify();
+          const auction = await fetchAndNotify();
+          if (!auction || auction.tokenMint === '') {
+            break;
+          }
           shouldRefresh = false;
         }
         // Wait for either refresh signal or timeout
