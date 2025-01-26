@@ -55,6 +55,11 @@ import {
   DasApiAssetCreator,
 } from '@metaplex-foundation/digital-asset-standard-api';
 import { bs58 } from '@coral-xyz/anchor/dist/cjs/utils/bytes';
+import {
+  S3Client,
+  PutObjectCommand,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3';
 
 // Constants
 const MAX_DEPTH = 14;
@@ -84,6 +89,7 @@ export interface GetAuctionAddressesInput {
 export interface GetAuctionAddressesOutput {
   auctions: string[];
   total: number;
+  accounts: DasApiAsset[];
 }
 
 export interface ProofHash {
@@ -110,6 +116,7 @@ export class SolanaService {
   private umi: Umi;
   private anchorClient: AnchorClient;
   private collectionMint!: Keypair;
+  private s3Client: S3Client;
 
   public static getInstance(): SolanaService {
     if (!SolanaService.instance) {
@@ -148,6 +155,15 @@ export class SolanaService {
 
     // Initialize collection on service startup
     this.initializeCollectionOnStartup();
+
+    this.s3Client = new S3Client({
+      endpoint: 'https://s3.filebase.com',
+      credentials: {
+        accessKeyId: process.env.FILEBASE_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.FILEBASE_SECRET_ACCESS_KEY!,
+      },
+      region: 'us-east-1',
+    });
   }
 
   public async getTreeConfig(merkleTree: PublicKey): Promise<TreeConfig> {
@@ -321,9 +337,54 @@ export class SolanaService {
     }
   }
 
+  private async uploadMetadataToFilebase(
+    metadata: NFTMetadata,
+  ): Promise<string> {
+    try {
+      const metadataBuffer = Buffer.from(JSON.stringify(metadata));
+      const fileName = `${Date.now()}-metadata.json`;
+
+      const uploadParams = {
+        Bucket: process.env.FILEBASE_BUCKET_NAME!,
+        Key: fileName,
+        Body: metadataBuffer,
+        ContentType: 'application/json',
+      };
+
+      // Upload metadata file
+      await this.s3Client.send(new PutObjectCommand(uploadParams));
+
+      // Get metadata CID
+      const headParams = {
+        Bucket: process.env.FILEBASE_BUCKET_NAME!,
+        Key: fileName,
+      };
+
+      const headResponse = await this.s3Client.send(
+        new HeadObjectCommand(headParams),
+      );
+      const cid = headResponse.Metadata?.['cid'];
+
+      if (!cid) {
+        throw new Error('Failed to get metadata CID from Filebase');
+      }
+
+      log.info('Metadata uploaded to Filebase', {
+        fileName,
+        cid,
+      });
+
+      return `${process.env.FILEBASE_IPFS_GATEWAY}/${cid}`;
+    } catch (error) {
+      log.error('Error uploading metadata to Filebase:', error as Error);
+      throw error;
+    }
+  }
+
   public async createNft(
     name: string,
     description: string,
+    imageUrl: string,
     authority: PublicKey,
     creators: {
       address: PublicKey;
@@ -352,12 +413,30 @@ export class SolanaService {
         })),
       );
 
-      // Create the collection NFT
+      // Prepare metadata
+      const metadata: NFTMetadata = {
+        name,
+        symbol: COLLECTION_SYMBOL,
+        description,
+        image: imageUrl,
+        attributes: [
+          {
+            trait_type: 'collection',
+            value: COLLECTION_NAME,
+          },
+        ],
+      };
+
+      // Upload metadata to Filebase and get IPFS URI
+      const metadataUri = await this.uploadMetadataToFilebase(metadata);
+      log.info('Metadata uploaded with URI', { uri: metadataUri });
+
+      // Create the collection NFT with the IPFS metadata URI
       const builder = createNft(this.umi, {
         mint: collectionSigner,
         name,
         symbol: COLLECTION_SYMBOL,
-        uri: COLLECTION_URI,
+        uri: metadataUri,
         sellerFeeBasisPoints: percentAmount(0),
         isCollection: true,
         creators: someCreators,
@@ -453,17 +532,19 @@ export class SolanaService {
         units: 50000,
       });
 
-      const instructions = verifyBuilder.getInstructions().map((instruction) => {
-        return new TransactionInstruction({
-          keys: instruction.keys.map((key) => ({
-            pubkey: new PublicKey(key.pubkey),
-            isSigner: key.isSigner,
-            isWritable: key.isWritable,
-          })),
-          programId: toWeb3JsPublicKey(instruction.programId),
-          data: Buffer.from(instruction.data),
+      const instructions = verifyBuilder
+        .getInstructions()
+        .map((instruction) => {
+          return new TransactionInstruction({
+            keys: instruction.keys.map((key) => ({
+              pubkey: new PublicKey(key.pubkey),
+              isSigner: key.isSigner,
+              isWritable: key.isWritable,
+            })),
+            programId: toWeb3JsPublicKey(instruction.programId),
+            data: Buffer.from(instruction.data),
+          });
         });
-      });
 
       const transaction = new Transaction().add(
         computeUnitLimit,
@@ -519,17 +600,19 @@ export class SolanaService {
         merkleTree: fromWeb3JsPublicKey(merkleTree),
       });
 
-      const delegateInstructions = setTreeDelegateBuilder.getInstructions().map((instruction) => {
-        return new TransactionInstruction({
-          keys: instruction.keys.map((key) => ({
-            pubkey: new PublicKey(key.pubkey),
-            isSigner: key.isSigner,
-            isWritable: key.isWritable,
-          })),
-          programId: toWeb3JsPublicKey(instruction.programId),
-          data: Buffer.from(instruction.data),
+      const delegateInstructions = setTreeDelegateBuilder
+        .getInstructions()
+        .map((instruction) => {
+          return new TransactionInstruction({
+            keys: instruction.keys.map((key) => ({
+              pubkey: new PublicKey(key.pubkey),
+              isSigner: key.isSigner,
+              isWritable: key.isWritable,
+            })),
+            programId: toWeb3JsPublicKey(instruction.programId),
+            data: Buffer.from(instruction.data),
+          });
         });
-      });
 
       const delegateTransaction = new Transaction().add(
         computeUnitLimit,
@@ -542,11 +625,13 @@ export class SolanaService {
       ).blockhash;
       delegateTransaction.sign(this.payer);
 
-      const delegateResult = await this.connection.sendTransaction(delegateTransaction, [
-        this.payer,
-      ], {
-        skipPreflight: true,
-      });
+      const delegateResult = await this.connection.sendTransaction(
+        delegateTransaction,
+        [this.payer],
+        {
+          skipPreflight: true,
+        },
+      );
 
       log.info('Tree authority delegated', {
         merkleTree: merkleTree.toString(),
@@ -569,17 +654,19 @@ export class SolanaService {
         newUpdateAuthority: fromWeb3JsPublicKey(auctionPda),
       });
 
-      const updateInstructions = updateBuilder.getInstructions().map((instruction) => {
-        return new TransactionInstruction({
-          keys: instruction.keys.map((key) => ({
-            pubkey: new PublicKey(key.pubkey),
-            isSigner: key.isSigner,
-            isWritable: key.isWritable,
-          })),
-          programId: toWeb3JsPublicKey(instruction.programId),
-          data: Buffer.from(instruction.data),
+      const updateInstructions = updateBuilder
+        .getInstructions()
+        .map((instruction) => {
+          return new TransactionInstruction({
+            keys: instruction.keys.map((key) => ({
+              pubkey: new PublicKey(key.pubkey),
+              isSigner: key.isSigner,
+              isWritable: key.isWritable,
+            })),
+            programId: toWeb3JsPublicKey(instruction.programId),
+            data: Buffer.from(instruction.data),
+          });
         });
-      });
 
       const updateTransaction = new Transaction().add(
         computeUnitLimit,
@@ -592,11 +679,13 @@ export class SolanaService {
       ).blockhash;
       updateTransaction.sign(this.payer);
 
-      const updateResult = await this.connection.sendTransaction(updateTransaction, [
-        this.payer,
-      ], {
-        skipPreflight: true,
-      });
+      const updateResult = await this.connection.sendTransaction(
+        updateTransaction,
+        [this.payer],
+        {
+          skipPreflight: true,
+        },
+      );
 
       log.info('Collection authority updated', {
         txId: updateResult,
@@ -1112,22 +1201,16 @@ export class SolanaService {
     }
   }
 
-  public async getAuctionAddresses(): Promise<GetAuctionAddressesOutput> {
+  public async getAuctionDAS(): Promise<DasApiAsset[]> {
     try {
       const accounts = await this.getCollectionChildren(
         this.collectionMint.publicKey,
       );
-      const authorities = accounts.map((account) =>
-        account.authorities.map((authority) => authority.address),
-      );
       log.info('Auction addresses fetched', {
-        auctions: authorities,
+        auctions: accounts,
         total: accounts.length,
       });
-      return {
-        auctions: authorities.map((authority) => authority.toString()),
-        total: accounts.length,
-      };
+      return accounts;
     } catch (error) {
       log.error('Error getting auction addresses:', error as Error);
       throw error;

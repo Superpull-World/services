@@ -1,5 +1,6 @@
 import { log } from '@temporalio/activity';
 import { SolanaService } from '../../../services/solana';
+import { DasApiAsset } from '@metaplex-foundation/digital-asset-standard-api';
 
 export interface AuctionBasicInfo {
   address: string;
@@ -19,6 +20,7 @@ export type GetBidsOutput = Partial<BidDetails>[];
 
 export interface GetAuctionDetailsInput {
   auctionAddress: string;
+  details?: DasApiAsset;
 }
 
 export interface GetAuctionDetailsOutput {
@@ -44,9 +46,6 @@ export interface BidDetails {
 
 export interface AuctionDetails {
   address: string;
-  name: string;
-  description: string;
-  imageUrl: string;
   authority: string;
   merkleTree: string;
   tokenMint: string;
@@ -66,16 +65,15 @@ export interface AuctionDetails {
   isGraduated: boolean;
   currentPrice: number;
   bids: Partial<BidDetails>[];
+  details?: DasApiAsset;
 }
 
-export async function getAuctions(): Promise<GetAuctionsOutput> {
+export async function getAuctions(): Promise<DasApiAsset[]> {
   try {
     const solanaService = SolanaService.getInstance();
-    const addresses = await solanaService.getAuctionAddresses();
+    const result = await solanaService.getAuctionDAS();
 
-    return addresses.auctions.map((auction) => ({
-      address: auction,
-    }));
+    return result;
   } catch (error) {
     log.error('Error in getAuctions activity:', error as Error);
     return [];
@@ -94,9 +92,7 @@ export async function getAuctionDetails(
       return {
         auction: {
           address: auction.address,
-          name: '', // These would come from metadata
-          description: '',
-          imageUrl: '',
+          details: input.details,
           authority: auction.state.authority.toString(),
           merkleTree: auction.state.merkleTree.toString(),
           tokenMint: auction.state.tokenMint.toString(),
@@ -124,9 +120,7 @@ export async function getAuctionDetails(
       return {
         auction: {
           address: input.auctionAddress,
-          name: '',
-          description: '',
-          imageUrl: '',
+          details: input.details,
           authority: '',
           merkleTree: '',
           collectionMint: '',

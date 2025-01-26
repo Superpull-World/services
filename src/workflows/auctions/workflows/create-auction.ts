@@ -76,7 +76,8 @@ export const createAuctionWorkflowFunction = async (
   setHandler(status, () => 'creating-collection-nft');
   const nftResult = await createCollectionNFT({
     name: `${input.name} Collection`,
-    description: `Collection for ${input.name} auction`,
+    description: input.description,
+    imageUrl: input.imageUrl,
     ownerAddress: input.ownerAddress,
     creators: input.creators,
   });

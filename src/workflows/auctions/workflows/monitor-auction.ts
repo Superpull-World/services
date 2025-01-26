@@ -9,6 +9,7 @@ import {
 } from '@temporalio/workflow';
 import type { getAuctionDetails, AuctionDetails } from '../activities';
 import { WorkflowEntry } from '../../registry';
+import { DasApiAsset } from '@metaplex-foundation/digital-asset-standard-api';
 
 const { getAuctionDetails: getAuctionDetailsActivity } = proxyActivities<{
   getAuctionDetails: typeof getAuctionDetails;
@@ -29,6 +30,7 @@ export const refreshAuction = defineSignal('refreshAuction');
 export type MonitorAuctionInput = {
   auctionAddress: string;
   parentWorkflowId: string;
+  details?: DasApiAsset;
 };
 
 export type MonitorAuctionWorkflow = WorkflowEntry<
@@ -76,6 +78,7 @@ export async function monitorAuctionWorkflowFunction(
     try {
       const auctionData = await getAuctionDetailsActivity({
         auctionAddress: input.auctionAddress,
+        details: input.details,
       });
 
       // If auction no longer exists, keep last known result

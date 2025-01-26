@@ -5,6 +5,7 @@ import { SolanaService } from '../../../services/solana';
 export interface CreateCollectionNFTInput {
   name: string;
   description: string;
+  imageUrl: string;
   ownerAddress: string;
   creators: {
     address: string;
@@ -37,6 +38,7 @@ export async function createCollectionNFT(
     const result = await solanaService.createNft(
       input.name,
       input.description,
+      input.imageUrl,
       new PublicKey(input.ownerAddress),
       input.creators.map((creator) => ({
         address: new PublicKey(creator.address),

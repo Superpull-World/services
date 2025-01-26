@@ -84,9 +84,6 @@ export const refundWorkflowFunction = async (
     collectionMint: '',
     creators: [],
     tokenMint: '',
-    name: '',
-    description: '',
-    imageUrl: '',
     authority: '',
     isGraduated: false,
     currentPrice: 0,
@@ -99,6 +96,7 @@ export const refundWorkflowFunction = async (
     minimumItems: 0,
     deadline: 0,
     bids: [],
+    details: undefined,
   };
   setHandler(monitorUpdate, (auctionDetails: AuctionDetails) => {
     auction = auctionDetails;

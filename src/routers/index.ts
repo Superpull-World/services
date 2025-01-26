@@ -1,5 +1,6 @@
 import express from 'express';
 import workflowRouter from './workflow';
+import uploadRouter from './upload';
 
 const router = express.Router();
 
@@ -10,5 +11,6 @@ router.use('/health', (req, res) => {
 });
 
 router.use('/workflow', workflowRouter);
+router.use('/upload', uploadRouter);
 
 export default router;

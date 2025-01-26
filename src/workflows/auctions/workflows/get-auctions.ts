@@ -123,16 +123,18 @@ export async function getAuctionsWorkflowFunction(
   // Start or signal monitor workflows for each auction
   await Promise.all(
     initialResult.map(async (auction) => {
-      if (auction.address !== undefined) {
-        const workflowId = `monitor-auction-${auction.address}`;
+      const authority = auction.authorities[0].address;
+      if (authority !== undefined) {
+        const workflowId = `monitor-auction-${authority}`;
         try {
           // Try to start new monitor workflow
           await startChild(monitorAuctionWorkflowFunction, {
             workflowId,
             args: [
               {
-                auctionAddress: auction.address,
+                auctionAddress: authority,
                 parentWorkflowId,
+                details: auction,
               },
             ],
             taskQueue: 'auction',
